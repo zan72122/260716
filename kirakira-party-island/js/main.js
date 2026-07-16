@@ -119,8 +119,10 @@ tapLayer.addEventListener('pointermove', (e) => {
 }, { passive: false });
 
 document.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
-// iOS のダブルタップズーム抑止
+// iOS のダブルタップズーム・ピンチ・長押しメニュー抑止
 document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 const soundBtn = document.getElementById('btn-sound');
 soundBtn.addEventListener('pointerdown', (e) => {
