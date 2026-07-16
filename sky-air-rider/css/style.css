@@ -43,6 +43,11 @@ html, body {
   box-shadow: 0 4px 0 rgba(180,120,180,0.35), 0 6px 18px rgba(60,40,120,0.18);
 }
 #star-counter { left: calc(env(safe-area-inset-left, 0px) + 12px); }
+.hud-chip.pop { animation: chipPop 0.32s ease; }
+@keyframes chipPop {
+  40% { transform: scale(1.22) rotate(-3deg); }
+  100% { transform: scale(1) rotate(0); }
+}
 #star-counter .star-icon { color: #ffb400; text-shadow: 0 0 8px #ffe28a; font-size: 1.15em; }
 #lap-counter { right: calc(env(safe-area-inset-right, 0px) + 12px); border-color: #9fd8ff; }
 #lap-counter .lap-unit { font-size: 0.55em; opacity: 0.75; margin-left: 2px; }

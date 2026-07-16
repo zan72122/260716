@@ -22,7 +22,13 @@ export class UI {
     this.hud.classList.remove('hidden');
   }
 
-  setStars(n) { this.starCount.textContent = n; }
+  setStars(n) {
+    this.starCount.textContent = n;
+    const chip = this.starCount.parentElement;
+    chip.classList.remove('pop');
+    void chip.offsetWidth;
+    chip.classList.add('pop');
+  }
   setLap(n) { this.lapCount.textContent = n; }
 
   setCharge(c) {

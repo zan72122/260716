@@ -41,13 +41,14 @@ export function addRim(mat, color = 0xffffff, strength = 0.28, power = 3.0) {
 
 /* ---- ソフトトゥーンマテリアル ---- */
 export function toon(color, opts = {}) {
+  const { rim, rimColor, rimStrength, ...rest } = opts;
   const mat = new THREE.MeshToonMaterial({
     color,
     gradientMap: softGradientMap(),
-    ...opts,
+    ...rest,
   });
-  if (opts.rim !== false) {
-    addRim(mat, opts.rimColor ?? 0xdfefff, opts.rimStrength ?? 0.22);
+  if (rim !== false) {
+    addRim(mat, rimColor ?? 0xdfefff, rimStrength ?? 0.22);
   }
   return mat;
 }

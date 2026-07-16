@@ -155,6 +155,16 @@ export function buildRider(palette) {
     arms.push(arm);
   }
 
+  // せなかの星バッジ (チャージで光る)
+  const capeMat = toon(P.star, {
+    emissive: new THREE.Color(P.star).multiplyScalar(0.25),
+    rimStrength: 0.3, rimColor: 0xfff0c0,
+  });
+  const cape = new THREE.Mesh(starGeometry(0.42, 0.19, 0.14), capeMat);
+  cape.position.set(0, 0.22, -0.98);
+  cape.rotation.y = Math.PI;
+  chara.add(cape);
+
   // あし
   for (const side of [-1, 1]) {
     const foot = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), toon(P.ear, { rim: false }));
@@ -167,7 +177,7 @@ export function buildRider(palette) {
   group.add(chara);
 
   return {
-    group, machine, chara, ears, arms, glow, star,
+    group, machine, chara, ears, arms, glow, star, cape,
     baseCharaY: 1.9,
     baseMachineY: 0.6,
   };
@@ -198,6 +208,13 @@ export function animateRider(r, state) {
     ear.rotation.x = -(0.3 + state.speedNorm * 0.55) + flap * (i === 0 ? 1 : -1) * 0.4;
     ear.rotation.z = side * -(0.22 + state.speedNorm * 0.1) + state.lean * 0.2;
   });
+
+  // 背中の星バッジ: くるくる + チャージで発光
+  r.cape.rotation.z = t * 1.5;
+  const badgeGlow = 0.25 + state.charge * 1.4 + Math.min(state.boostTimer, 1) * 1.0;
+  r.cape.material.emissiveIntensity = badgeGlow;
+  const badgeScale = 1 + state.charge * 0.35;
+  r.cape.scale.setScalar(badgeScale);
 
   // うで: ブースト時にばんざい
   const up = state.boostTimer > 0 ? 0.9 : 0;
