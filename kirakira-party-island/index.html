@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#7ec8ff">
+<title>きらきら☆パーティーアイランド</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- ===== HUD ===== -->
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="round-pips" aria-label="ラウンド"></div>
+      <div id="player-strip"></div>
+      <button id="btn-sound" class="round-btn" aria-label="おと">🔊</button>
+    </div>
+    <div id="hud-bottom">
+      <button id="btn-dice" class="hidden" aria-label="サイコロ">
+        <span class="dice-face">🎲</span>
+        <span class="dice-label">タップ!</span>
+      </button>
+    </div>
+    <div id="timer-wrap" class="hidden"><div id="timer-bar"></div></div>
+    <div id="mg-score" class="hidden">0</div>
+  </div>
+
+  <!-- ===== Big center banner ===== -->
+  <div id="banner" class="hidden"><div id="banner-inner"></div></div>
+
+  <!-- ===== Tap catcher for minigames ===== -->
+  <div id="tap-layer" class="hidden"></div>
+
+  <!-- ===== Title screen ===== -->
+  <div id="title-screen">
+    <div class="title-sky"></div>
+    <div class="title-card">
+      <div class="title-stars">⭐ 🌈 ⭐</div>
+      <h1>きらきら☆<br>パーティーアイランド</h1>
+      <div id="char-select">
+        <p class="select-label">すきな おともだちを えらんでね!</p>
+        <div id="char-buttons"></div>
+      </div>
+      <button id="btn-start" class="big-btn" disabled>あそぶ!</button>
+    </div>
+  </div>
+
+  <!-- ===== Orientation-independent loading ===== -->
+  <div id="loading"><div class="loading-star">⭐</div><p>じゅんびちゅう…</p></div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
