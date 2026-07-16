@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>テニス フィーバー!</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#37b6ff">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "./js/vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl"></canvas>
+
+  <!-- ===== HUD ===== -->
+  <div id="hud" class="hidden">
+    <div id="star-box">
+      <span class="star-icon">★</span>
+      <span id="star-count">0</span>
+    </div>
+    <div id="rally-box" class="hidden">
+      <span id="rally-count">0</span>
+      <span class="rally-label">ラリー</span>
+    </div>
+    <button id="mute-btn" aria-label="おと">🔊</button>
+    <div id="fever-gauge">
+      <div id="fever-fill"></div>
+      <div id="fever-label">フィーバー</div>
+    </div>
+  </div>
+
+  <!-- floating text pops live here -->
+  <div id="pops"></div>
+
+  <!-- ===== TITLE ===== -->
+  <div id="title-screen">
+    <div class="sky-deco"></div>
+    <h1 id="logo">
+      <span class="logo-line1">
+        <i>テ</i><i>ニ</i><i>ス</i>
+      </span>
+      <span class="logo-line2">
+        <i>フ</i><i>ィ</i><i>ー</i><i>バ</i><i>ー</i><i>!</i>
+      </span>
+    </h1>
+    <div id="title-ball">🎾</div>
+    <button id="start-btn">タップして はじめる</button>
+  </div>
+
+  <!-- ===== CHARACTER SELECT ===== -->
+  <div id="select-screen" class="hidden">
+    <h2>だれで あそぶ?</h2>
+    <div id="char-cards">
+      <button class="char-card" data-char="bunny" style="--c:#ff8fb8; --c2:#ffd7e6;">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <ellipse cx="38" cy="18" rx="9" ry="20" fill="#ff8fb8"/>
+          <ellipse cx="62" cy="18" rx="9" ry="20" fill="#ff8fb8"/>
+          <ellipse cx="38" cy="20" rx="4.5" ry="13" fill="#ffd7e6"/>
+          <ellipse cx="62" cy="20" rx="4.5" ry="13" fill="#ffd7e6"/>
+          <circle cx="50" cy="58" r="34" fill="#ff8fb8"/>
+          <circle cx="38" cy="52" r="5.5" fill="#3a2a30"/>
+          <circle cx="62" cy="52" r="5.5" fill="#3a2a30"/>
+          <circle cx="40" cy="50" r="2" fill="#fff"/>
+          <circle cx="64" cy="50" r="2" fill="#fff"/>
+          <circle cx="30" cy="64" r="6" fill="#ffb9d2" opacity=".8"/>
+          <circle cx="70" cy="64" r="6" fill="#ffb9d2" opacity=".8"/>
+          <path d="M44 66 Q50 72 56 66" stroke="#3a2a30" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <ellipse cx="50" cy="62" rx="3.5" ry="2.5" fill="#e2557f"/>
+        </svg>
+        <span class="char-name">ミミ</span>
+      </button>
+      <button class="char-card" data-char="cat" style="--c:#ffb347; --c2:#ffe3b3;">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M20 38 L28 8 L48 26 Z" fill="#ffb347"/>
+          <path d="M80 38 L72 8 L52 26 Z" fill="#ffb347"/>
+          <path d="M25 32 L29 16 L41 27 Z" fill="#ffe3b3"/>
+          <path d="M75 32 L71 16 L59 27 Z" fill="#ffe3b3"/>
+          <circle cx="50" cy="58" r="34" fill="#ffb347"/>
+          <circle cx="38" cy="52" r="5.5" fill="#33313a"/>
+          <circle cx="62" cy="52" r="5.5" fill="#33313a"/>
+          <circle cx="40" cy="50" r="2" fill="#fff"/>
+          <circle cx="64" cy="50" r="2" fill="#fff"/>
+          <path d="M44 66 Q47 70 50 66 Q53 70 56 66" stroke="#33313a" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <ellipse cx="50" cy="61" rx="3.5" ry="2.5" fill="#e2794f"/>
+          <path d="M18 58 h12 M18 66 h12 M70 58 h12 M70 66 h12" stroke="#e89a3c" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span class="char-name">トラ</span>
+      </button>
+      <button class="char-card" data-char="dino" style="--c:#5fd18a; --c2:#c3f3d4;">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M50 6 L58 20 L42 20 Z" fill="#38a869"/>
+          <path d="M32 14 L40 26 L26 28 Z" fill="#38a869"/>
+          <path d="M68 14 L60 26 L74 28 Z" fill="#38a869"/>
+          <circle cx="50" cy="58" r="34" fill="#5fd18a"/>
+          <ellipse cx="50" cy="70" rx="20" ry="14" fill="#c3f3d4"/>
+          <circle cx="38" cy="50" r="5.5" fill="#2c3d33"/>
+          <circle cx="62" cy="50" r="5.5" fill="#2c3d33"/>
+          <circle cx="40" cy="48" r="2" fill="#fff"/>
+          <circle cx="64" cy="48" r="2" fill="#fff"/>
+          <path d="M42 64 Q50 71 58 64" stroke="#2c3d33" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span class="char-name">ガオ</span>
+      </button>
+    </div>
+    <p class="select-hint">すきな こを タッチしてね</p>
+  </div>
+
+  <!-- ===== HOW TO (one picture) ===== -->
+  <div id="howto-screen" class="hidden">
+    <div class="howto-card">
+      <div class="howto-hand">👆</div>
+      <p>ボールが きたら<br><b>タッチ!</b></p>
+      <button id="go-btn">あそぶ!</button>
+    </div>
+  </div>
+
+  <!-- fever flash overlay -->
+  <div id="fever-flash"></div>
+
+  <!-- rotate is never required; both orientations OK -->
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
