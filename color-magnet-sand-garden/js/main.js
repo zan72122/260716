@@ -7,7 +7,6 @@
   var canvas = document.getElementById("game");
   var stage = document.getElementById("stage");
   var titleEl = document.getElementById("title");
-  var startBtn = document.getElementById("startBtn");
   var shakeBtn = document.getElementById("shakeBtn");
   var muteBtn = document.getElementById("muteBtn");
   var themeBtn = document.getElementById("themeBtn");
@@ -43,7 +42,8 @@
     if (sim.W === 0) {
       sim.setup(s.w, s.h, CONFIG.particle.baseCount);
     } else {
-      sim.resize(s.w, s.h);
+      var map = sim.resize(s.w, s.h);
+      if (map) renderer.remap(map);
     }
   }
 
@@ -58,16 +58,32 @@
     window.visualViewport.addEventListener("resize", doResize);
   }
 
+  /* ---- おさそい(無操作が続いたら磁石がぷるっと誘う) ---- */
+  var nextInviteT = Infinity;
+  function noteActivity() {
+    if (started) nextInviteT = lastT + CONFIG.idle.delay;
+  }
+  function invite() {
+    var m = sim.magnets[0].active ? sim.magnets[0] : sim.magnets[1];
+    if (!m.active) return;
+    m.wobble = 1;
+    sim.pokeAt(m.x, m.y, CONFIG.idle.pokeRadius, CONFIG.idle.pokeMax);
+    GameAudio.poke(0.5);
+  }
+
   /* ---- 入力 ---- */
   var input = new InputHandler(canvas, sim, renderer, function (name) {
     if (name === "pop") GameAudio.pop();
-  });
+    else if (name === "poke") GameAudio.poke();
+  }, noteActivity);
 
   /* ---- ボタン ---- */
   function pressShake(e) {
     if (e) e.preventDefault();
+    noteActivity();
     if (sim.startShake()) {
-      GameAudio.whoosh(CONFIG.shake.waveTime + 0.2);
+      GameAudio.powerDown();                        // 磁力が切れる「きゅうん」
+      GameAudio.whoosh(CONFIG.shake.waveTime + 0.2); // 色の波
       stage.classList.remove("shaking");
       void stage.offsetWidth;   // アニメを再始動
       stage.classList.add("shaking");
@@ -79,6 +95,7 @@
 
   muteBtn.addEventListener("pointerdown", function (e) {
     e.preventDefault();
+    noteActivity();
     muted = !muted;
     GameAudio.setMuted(muted);
     muteBtn.textContent = muted ? "🔇" : "🔊";
@@ -88,23 +105,24 @@
 
   themeBtn.addEventListener("pointerdown", function (e) {
     e.preventDefault();
+    noteActivity();
     themeIdx = (themeIdx + 1) % THEMES.length;
     renderer.setTheme(themeIdx);
     GameAudio.pop();
     try { localStorage.setItem("sandTheme", String(themeIdx)); } catch (err) {}
   });
 
-  /* ---- タイトル → 開始(音のアンロックを兼ねる) ---- */
+  /* ---- タイトル → 開始(どこをタップしても開始。音のアンロックを兼ねる) ---- */
   function start() {
     if (started) return;
     started = true;
     GameAudio.resume();
     titleEl.classList.add("hidden");
     shakeBtn.classList.add("wiggling");
+    nextInviteT = (performance.now() / 1000) + CONFIG.idle.delay;
   }
-  startBtn.addEventListener("pointerdown", function (e) { e.preventDefault(); start(); });
-  startBtn.addEventListener("click", start);
-  titleEl.addEventListener("pointerdown", start);
+  titleEl.addEventListener("pointerdown", function (e) { e.preventDefault(); start(); });
+  titleEl.addEventListener("click", start);
 
   /* ---- 性能の自動調整 ---- */
   var fpsAccum = 0, fpsFrames = 0, fpsTimer = 0, slowStreak = 0, fastStreak = 0;
@@ -143,7 +161,13 @@
 
     sim.update(dt);
 
-    /* 音: 磁石の速さ → さらさら、山が落ち着く → ふわっ */
+    /* おさそい: 無操作が続いたら磁石が誘う(触れば即中断) */
+    if (started && t >= nextInviteT) {
+      if (!input.anyPointerDown() && !sim.shakeActive && sim.fieldOff <= 0) invite();
+      nextInviteT = t + CONFIG.idle.repeat;
+    }
+
+    /* 音: 磁石の速さ → さらさら(大きい山ほど低い)、山が落ち着く → ふわっ */
     if (started) {
       var sp = 0;
       for (var i = 0; i < 2; i++) {
@@ -152,12 +176,17 @@
       }
       var activity = Math.min(1, sp / 900);
       var busy = Math.min(1, sim.capturedCount / (sim.count * 0.4));
-      GameAudio.updateSand(activity, busy);
+      var moundNorm = Math.min(1, Math.max(sim.moundCount[0], sim.moundCount[1]) / 1200);
+      GameAudio.updateSand(activity, busy, moundNorm);
 
       for (var e = 0; e < sim.events.length; e++) {
         var ev = sim.events[e];
-        if (ev === "settled") GameAudio.settlePuff(0.4 + busy);
+        if (ev === "settled") GameAudio.settlePuff(0.4 + busy, moundNorm);
         else if (ev === "merge") GameAudio.chime();
+        else if (ev === "bridge") GameAudio.glissando();
+        else if (ev === "bridgeBreak") GameAudio.pluck();
+        else if (ev === "land") GameAudio.pop();
+        else if (ev === "reboot") GameAudio.pop();
       }
     }
 
@@ -171,8 +200,10 @@
   window.__game = {
     sim: sim,
     renderer: renderer,
+    input: input,
     start: start,
     shake: pressShake,
+    invite: invite,
     isStarted: function () { return started; },
   };
 })();
