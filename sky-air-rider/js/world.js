@@ -59,7 +59,8 @@ export class World {
       let d = headings[(i + 1) % LUT_N] - headings[i];
       if (d > Math.PI) d -= Math.PI * 2;
       if (d < -Math.PI) d += Math.PI * 2;
-      bank[i] = THREE.MathUtils.clamp((d / ds) * 22.0, -0.5, 0.5);
+      // カーブの外側が持ち上がるように傾ける (d>0 = 世界+X方向へ旋回 → +X側が内側)
+      bank[i] = THREE.MathUtils.clamp(-(d / ds) * 22.0, -0.5, 0.5);
     }
     const sm = new Float32Array(LUT_N);
     const W = 18;

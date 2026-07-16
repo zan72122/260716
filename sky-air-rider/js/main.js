@@ -197,8 +197,10 @@ function updatePlayer(dt) {
   }
 
   // ---- ハンドル ----
+  // 注意: pf.right はカメラから見て「画面左」を向く (カメラは +tan 方向を見るため)。
+  // steer > 0 = 画面右へ = -right 方向なので符号を反転して適用する。
   const steerPow = state.airborne ? 7 : 13;
-  state.x += input.steer * steerPow * dt;
+  state.x -= input.steer * steerPow * dt;
   // ゆるい中央アシスト (はしっこに行きすぎたら戻す)
   const edge = ROAD_HW - 1.5;
   if (Math.abs(state.x) > edge * 0.82 && Math.abs(input.steer) < 0.25) {
@@ -246,7 +248,7 @@ function updatePlayer(dt) {
   animateRider(player, {
     speedNorm: Math.min(1, speed / 55),
     charge: state.charge,
-    lean: -input.steer,
+    lean: input.steer,
     boostTimer: state.boostTimer,
     airborne: state.airborne,
     time: state.time,
@@ -353,7 +355,7 @@ function updateNPCs(dt) {
     tmpM.makeBasis(tmpFrame.right, tmpFrame.up, tmpFrame.tan);
     n.rider.group.quaternion.setFromRotationMatrix(tmpM);
     animateRider(n.rider, {
-      speedNorm: n.speed / 55, charge: 0, lean: Math.cos(state.time * 0.45 + n.phase) * 0.5,
+      speedNorm: n.speed / 55, charge: 0, lean: -Math.cos(state.time * 0.45 + n.phase) * 0.5,
       boostTimer: 0, airborne: false, time: state.time + n.phase * 10,
     });
 
@@ -431,7 +433,9 @@ function titleCamera(dt) {
 }
 
 /* ================= ゲーム開始 ================= */
-document.getElementById('start-btn').addEventListener('click', () => {
+const startBtn = document.getElementById('start-btn');
+startBtn.addEventListener('click', () => {
+  if (state.mode === 'play') return; // Spaceキーなどでの再発火を防ぐ
   audio.unlock();
   audio.startBGM();
   ui.showGame();
@@ -439,6 +443,8 @@ document.getElementById('start-btn').addEventListener('click', () => {
   camInit = false;
   ui.big('よーい どん!');
   audio.lap();
+  startBtn.blur();
+  input.enabled = true;
 });
 
 ui.muteBtn.addEventListener('click', (e) => {
