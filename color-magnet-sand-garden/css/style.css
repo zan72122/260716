@@ -1,0 +1,178 @@
+/* カラーじしゃく すなもよう庭 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #171a2b;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: "Hiragino Maru Gothic ProN", "BIZ UDGothic", "Rounded Mplus 1c",
+               "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+#stage.shaking { animation: stage-shake 0.5s ease-in-out; }
+@keyframes stage-shake {
+  0%   { transform: translate(0, 0); }
+  15%  { transform: translate(-7px, 3px); }
+  30%  { transform: translate(6px, -4px); }
+  45%  { transform: translate(-5px, -3px); }
+  60%  { transform: translate(4px, 3px); }
+  75%  { transform: translate(-3px, 1px); }
+  100% { transform: translate(0, 0); }
+}
+
+#game {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---------- UI ---------- */
+#ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#ui button { pointer-events: auto; }
+
+#shakeBtn {
+  position: absolute;
+  right: calc(14px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  border: none;
+  background: radial-gradient(circle at 32% 28%, #ffe082, #ffb74d 62%, #f57c00);
+  box-shadow: 0 6px 0 #b35a09, 0 10px 22px rgba(0,0,0,.45);
+  color: #5d2e00;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  transition: transform .08s ease, box-shadow .08s ease;
+}
+#shakeBtn:active,
+#shakeBtn.pressed {
+  transform: translateY(5px);
+  box-shadow: 0 1px 0 #b35a09, 0 4px 10px rgba(0,0,0,.4);
+}
+#shakeBtn .shake-icon { font-size: 30px; line-height: 1; }
+#shakeBtn .shake-label { font-size: 16px; font-weight: 700; letter-spacing: .05em; }
+#shakeBtn.wiggling { animation: btn-wiggle 2.4s ease-in-out infinite; }
+@keyframes btn-wiggle {
+  0%, 86%, 100% { rotate: 0deg; }
+  90% { rotate: -6deg; }
+  94% { rotate: 6deg; }
+  98% { rotate: -3deg; }
+}
+
+.chip {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,.14);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 21px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.3);
+}
+.chip:active { transform: scale(.92); }
+
+#muteBtn {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+}
+#muteBtn.muted { opacity: .55; }
+
+#themeBtn {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+}
+.theme-dots { display: flex; gap: 3px; }
+.theme-dots i {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--d, #fff);
+}
+.theme-dots i:nth-child(1) { --d: #4FC3F7; }
+.theme-dots i:nth-child(2) { --d: #F48FB1; }
+.theme-dots i:nth-child(3) { --d: #FFD54F; }
+
+/* ---------- タイトル ---------- */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 42%, rgba(52,58,102,.92), rgba(18,20,35,.96));
+  z-index: 10;
+  transition: opacity .5s ease;
+}
+.overlay.hidden { opacity: 0; pointer-events: none; }
+
+.title-card {
+  text-align: center;
+  color: #fff;
+  padding: 24px;
+  max-width: 90vw;
+}
+.title-magnet { animation: float 3s ease-in-out infinite; }
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
+}
+.title-card h1 {
+  font-size: clamp(26px, 6.5vw, 42px);
+  line-height: 1.35;
+  margin: 10px 0 26px;
+  text-shadow: 0 3px 14px rgba(0,0,0,.5);
+  letter-spacing: .04em;
+}
+#startBtn {
+  font-family: inherit;
+  font-size: clamp(19px, 4.5vw, 26px);
+  font-weight: 700;
+  color: #4a2800;
+  background: linear-gradient(#ffe082, #ffca28);
+  border: none;
+  border-radius: 999px;
+  padding: 18px 40px;
+  box-shadow: 0 5px 0 #c98d00, 0 10px 24px rgba(0,0,0,.4);
+  cursor: pointer;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+#startBtn:active { transform: translateY(4px); box-shadow: 0 1px 0 #c98d00; }
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+.title-card .hint {
+  margin-top: 20px;
+  font-size: clamp(13px, 3.2vw, 16px);
+  opacity: .75;
+  letter-spacing: .06em;
+}

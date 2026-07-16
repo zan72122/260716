@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="すなもよう庭">
+<meta name="theme-color" content="#171a2b">
+<title>カラーじしゃく すなもよう庭</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <div id="ui">
+    <button id="shakeBtn" type="button" aria-label="すなを ならす">
+      <span class="shake-icon">〰</span>
+      <span class="shake-label">ふりふり</span>
+    </button>
+    <button id="muteBtn" type="button" class="chip" aria-label="おとの おんおふ">🔊</button>
+    <button id="themeBtn" type="button" class="chip" aria-label="いろを かえる">
+      <span class="theme-dots"><i></i><i></i><i></i></span>
+    </button>
+  </div>
+
+  <div id="title" class="overlay">
+    <div class="title-card">
+      <div class="title-magnet">
+        <svg viewBox="0 0 120 120" width="110" height="110" aria-hidden="true">
+          <path d="M30 14 h24 v46 a6 14 0 0 0 12 0 V14 h24 v46 a30 38 0 0 1 -60 0 Z"
+                fill="#ef5350" stroke="#c62828" stroke-width="3" stroke-linejoin="round"/>
+          <rect x="30" y="14" width="24" height="16" rx="3" fill="#f5f7fb" stroke="#c62828" stroke-width="3"/>
+          <rect x="66" y="14" width="24" height="16" rx="3" fill="#f5f7fb" stroke="#c62828" stroke-width="3"/>
+          <circle cx="24" cy="94" r="4" fill="#4FC3F7"/>
+          <circle cx="38" cy="106" r="4" fill="#F48FB1"/>
+          <circle cx="58" cy="111" r="4" fill="#FFD54F"/>
+          <circle cx="80" cy="107" r="4" fill="#AED581"/>
+          <circle cx="96" cy="96" r="4" fill="#B39DDB"/>
+        </svg>
+      </div>
+      <h1>カラーじしゃく<br>すなもよう<ruby>庭<rt>にわ</rt></ruby></h1>
+      <button id="startBtn" type="button">タップして はじめる</button>
+      <p class="hint">じしゃくを ゆびで うごかしてみよう</p>
+    </div>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/render.js"></script>
+<script src="js/input.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

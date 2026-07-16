@@ -1,0 +1,15 @@
+{
+  "name": "カラーじしゃく すなもよう庭",
+  "short_name": "すなもよう庭",
+  "description": "磁石を動かして、カラー磁性砂で模様を描くこどもむけあそび",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#171a2b",
+  "theme_color": "#171a2b",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-180.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}
