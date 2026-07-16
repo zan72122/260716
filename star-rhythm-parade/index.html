@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a1440">
+<title>ほしぞら リズムパレード</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./js/vendor/three.module.min.js",
+    "three/addons/": "./js/vendor/addons/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="stage"></canvas>
+
+  <!-- ===== HTML UI overlay ===== -->
+  <div id="ui">
+
+    <!-- boot / audio unlock -->
+    <section id="screen-boot" class="screen show">
+      <div class="boot-card">
+        <div class="boot-logo">
+          <span class="logo-star">★</span>
+          <h1>ほしぞら<br>リズムパレード</h1>
+          <span class="logo-star s2">★</span>
+        </div>
+        <button id="btn-boot" class="big-btn pulse">タップして はじめる</button>
+        <p class="boot-hint">🔊 おとが でるよ</p>
+      </div>
+    </section>
+
+    <!-- title / menu -->
+    <section id="screen-menu" class="screen">
+      <h1 class="menu-title"><span>ほしぞら</span> リズムパレード</h1>
+      <p class="menu-sub">おんがくに あわせて タップしよう!</p>
+      <div class="menu-cards">
+        <button class="game-card" data-game="mochi">
+          <span class="card-emoji">🐰</span>
+          <span class="card-name">もちつき<br>ぺったん</span>
+        </button>
+        <button class="game-card" data-game="catch">
+          <span class="card-emoji">🐱</span>
+          <span class="card-name">おほしさま<br>キャッチ</span>
+        </button>
+        <button class="game-card" data-game="jump">
+          <span class="card-emoji">🐻</span>
+          <span class="card-name">みんなで<br>ジャンプ</span>
+        </button>
+      </div>
+      <div class="menu-stars" id="menu-stars"></div>
+    </section>
+
+    <!-- in-game HUD -->
+    <section id="screen-game" class="screen">
+      <div class="hud-top">
+        <button id="btn-home" class="icon-btn" aria-label="やめる">🏠</button>
+        <div id="hud-stars" class="hud-stars"></div>
+      </div>
+      <div id="cue-banner" class="cue-banner"></div>
+      <div id="feedback" class="feedback"></div>
+      <div id="tap-hint" class="tap-hint">
+        <div class="tap-ring"></div>
+        <span>タップ!</span>
+      </div>
+    </section>
+
+    <!-- results -->
+    <section id="screen-result" class="screen">
+      <div class="result-card">
+        <h2 id="result-title">やったね!</h2>
+        <div id="result-stars" class="result-stars">
+          <span class="rstar">★</span><span class="rstar">★</span><span class="rstar">★</span>
+        </div>
+        <p id="result-msg" class="result-msg">とっても じょうずだったよ!</p>
+        <div class="result-btns">
+          <button id="btn-again" class="big-btn">もういっかい</button>
+          <button id="btn-menu" class="big-btn ghost">えらぶ</button>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- orientation-safe rotate hint (only if too tiny) -->
+  <div id="flash"></div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
