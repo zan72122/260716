@@ -29,10 +29,10 @@
     </button>
   </div>
 
-  <div id="title" class="overlay">
-    <div class="title-card">
+  <div id="title" class="overlay" role="button" aria-label="タップして はじめる">
+    <div class="title-card" aria-hidden="true">
       <div class="title-magnet">
-        <svg viewBox="0 0 120 120" width="110" height="110" aria-hidden="true">
+        <svg viewBox="0 0 120 120" width="150" height="150">
           <path d="M30 14 h24 v46 a6 14 0 0 0 12 0 V14 h24 v46 a30 38 0 0 1 -60 0 Z"
                 fill="#ef5350" stroke="#c62828" stroke-width="3" stroke-linejoin="round"/>
           <rect x="30" y="14" width="24" height="16" rx="3" fill="#f5f7fb" stroke="#c62828" stroke-width="3"/>
@@ -44,9 +44,10 @@
           <circle cx="96" cy="96" r="4" fill="#B39DDB"/>
         </svg>
       </div>
-      <h1>カラーじしゃく<br>すなもよう<ruby>庭<rt>にわ</rt></ruby></h1>
-      <button id="startBtn" type="button">タップして はじめる</button>
-      <p class="hint">じしゃくを ゆびで うごかしてみよう</p>
+      <div class="tap-cue">
+        <span class="tap-ring"></span>
+        <span class="tap-finger">👆</span>
+      </div>
     </div>
   </div>
 </div>

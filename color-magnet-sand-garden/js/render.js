@@ -29,7 +29,9 @@ function Renderer(canvas) {
     this.batchXY.push(new Float32Array(CONFIG.particle.maxCount * 4));
   }
 
-  this.ripple = null;   // { x, y, t } タップ先のしるし
+  this.ripple = null;      // { x, y, t } タップ先のしるし
+  this.touchPulses = [];   // 触った瞬間の白リング
+  this.glowLevel = 1;      // 磁石の光(磁場オフでゼロへ)
 }
 
 /* ---------- 色ユーティリティ ---------- */
@@ -148,65 +150,80 @@ Renderer.prototype._makeGlow = function () {
   g.fillRect(0, 0, size, size);
 };
 
-/* ---------- U字磁石スプライト ---------- */
+/* ---------- U字磁石スプライト(おきている顔 / ねむり顔) ---------- */
 Renderer.prototype._makeMagnetSprites = function () {
   this.magnetSprites = [];
   for (var s = 0; s < MAGNET_STYLES.length; s++) {
-    var st = MAGNET_STYLES[s];
-    var scale = 2;
-    var w = 96, h = 100;
-    var c = document.createElement("canvas");
-    c.width = w * scale; c.height = h * scale;
-    var g = c.getContext("2d");
-    g.scale(scale, scale);
-    g.translate(w / 2, h / 2);
+    this.magnetSprites.push({
+      awake: this._drawMagnetSprite(MAGNET_STYLES[s], false),
+      asleep: this._drawMagnetSprite(MAGNET_STYLES[s], true),
+    });
+  }
+};
 
-    g.lineJoin = "round";
-    /* U字磁石(開口部が下=砂へ向く)。
-       アーチ中心 cy、外径 oR、内径 iR、脚の下端 legB */
-    var cy = -6, oR = 33, iR = 13, legB = 36, tipH = 14;
-    g.beginPath();
-    g.moveTo(-oR, cy);
-    g.arc(0, cy, oR, Math.PI, Math.PI * 2, false); // 外側アーチ(上半分)
-    g.lineTo(oR, legB);
-    g.lineTo(iR, legB);
-    g.lineTo(iR, cy);
-    g.arc(0, cy, iR, 0, Math.PI, true);            // 内側アーチ(戻り)
-    g.lineTo(-iR, legB);
-    g.lineTo(-oR, legB);
-    g.closePath();
-    g.fillStyle = st.body;
-    g.strokeStyle = st.edge;
-    g.lineWidth = 4;
-    g.fill();
-    g.stroke();
+Renderer.prototype._drawMagnetSprite = function (st, asleep) {
+  var scale = 2;
+  var w = 96, h = 100;
+  var c = document.createElement("canvas");
+  c.width = w * scale; c.height = h * scale;
+  var g = c.getContext("2d");
+  g.scale(scale, scale);
+  g.translate(w / 2, h / 2);
 
-    // 先端(白)— 砂に触れる側
-    g.fillStyle = "#f5f7fb";
-    g.beginPath(); g.rect(-oR, legB - tipH, oR - iR, tipH); g.fill(); g.stroke();
-    g.beginPath(); g.rect(iR, legB - tipH, oR - iR, tipH); g.fill(); g.stroke();
+  // 磁力オフ中はくすんだ色になる
+  var body = asleep ? mixColor(st.body, "#777788", 0.45) : st.body;
+  var edge = asleep ? mixColor(st.edge, "#555566", 0.45) : st.edge;
 
-    // つやのハイライト
-    g.globalAlpha = 0.35;
-    g.fillStyle = "#ffffff";
-    g.beginPath();
-    g.ellipse(-17, -20, 6, 12, -0.5, 0, 6.2832);
-    g.fill();
-    g.globalAlpha = 1;
+  g.lineJoin = "round";
+  /* U字磁石(開口部が下=砂へ向く)。
+     アーチ中心 cy、外径 oR、内径 iR、脚の下端 legB */
+  var cy = -6, oR = 33, iR = 13, legB = 36, tipH = 14;
+  g.beginPath();
+  g.moveTo(-oR, cy);
+  g.arc(0, cy, oR, Math.PI, Math.PI * 2, false); // 外側アーチ(上半分)
+  g.lineTo(oR, legB);
+  g.lineTo(iR, legB);
+  g.lineTo(iR, cy);
+  g.arc(0, cy, iR, 0, Math.PI, true);            // 内側アーチ(戻り)
+  g.lineTo(-iR, legB);
+  g.lineTo(-oR, legB);
+  g.closePath();
+  g.fillStyle = body;
+  g.strokeStyle = edge;
+  g.lineWidth = 4;
+  g.fill();
+  g.stroke();
 
-    // にこにこの目(4歳向けの親しみ)
-    g.fillStyle = "#3a2020";
+  // 先端(白)— 砂に触れる側
+  g.fillStyle = asleep ? "#c9ccd8" : "#f5f7fb";
+  g.beginPath(); g.rect(-oR, legB - tipH, oR - iR, tipH); g.fill(); g.stroke();
+  g.beginPath(); g.rect(iR, legB - tipH, oR - iR, tipH); g.fill(); g.stroke();
+
+  // つやのハイライト
+  g.globalAlpha = asleep ? 0.18 : 0.35;
+  g.fillStyle = "#ffffff";
+  g.beginPath();
+  g.ellipse(-17, -20, 6, 12, -0.5, 0, 6.2832);
+  g.fill();
+  g.globalAlpha = 1;
+
+  // 顔(4歳向けの親しみ)。眠り顔は目を閉じる
+  g.strokeStyle = "#3a2020";
+  g.fillStyle = "#3a2020";
+  g.lineWidth = 2.4;
+  g.lineCap = "round";
+  if (asleep) {
+    g.beginPath(); g.arc(-9, cy - 16, 3.4, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
+    g.beginPath(); g.arc(9, cy - 16, 3.4, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
+    g.beginPath(); g.arc(0, cy - 10, 3, 0.2 * Math.PI, 0.8 * Math.PI); g.stroke();
+  } else {
     g.beginPath(); g.arc(-9, cy - 15, 3.2, 0, 6.2832); g.fill();
     g.beginPath(); g.arc(9, cy - 15, 3.2, 0, 6.2832); g.fill();
-    g.strokeStyle = "#3a2020";
-    g.lineWidth = 2.4;
-    g.lineCap = "round";
     g.beginPath();
     g.arc(0, cy - 12, 6, 0.2 * Math.PI, 0.8 * Math.PI);
     g.stroke();
-
-    this.magnetSprites.push(c);
   }
+  return c;
 };
 
 /* ---------- 毎フレーム ---------- */
@@ -219,21 +236,25 @@ Renderer.prototype.draw = function (sim, dt) {
   ctx.drawImage(this.trayCanvas, 0, 0);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  /* --- 磁石の下の光(場の強さのヒント) --- */
-  ctx.globalCompositeOperation = "lighter";
-  for (var mi = 0; mi < 2; mi++) {
-    var m = sim.magnets[mi];
-    if (!m.active) continue;
-    var pulse = 1 + Math.sin(this.time * 2.2 + mi * 2) * 0.05;
-    var rad = (m.dragId !== -1 || m.gliding)
-      ? CONFIG.magnet.fieldRadius * 1.05
-      : CONFIG.magnet.fieldRadius * 0.72;
-    rad *= pulse;
-    ctx.globalAlpha = (m.dragId !== -1 || m.gliding) ? 0.5 : 0.3;
-    ctx.drawImage(this.glowCanvas, m.x - rad, m.y - rad, rad * 2, rad * 2);
+  /* --- 磁石の下の光(場の強さのヒント)。磁場オフ中はすっと消える --- */
+  var glowTarget = sim.fieldOff > 0 ? 0 : 1;
+  this.glowLevel += (glowTarget - this.glowLevel) * Math.min(1, dt * 7);
+  if (this.glowLevel > 0.02) {
+    ctx.globalCompositeOperation = "lighter";
+    for (var mi = 0; mi < 2; mi++) {
+      var m = sim.magnets[mi];
+      if (!m.active || m.dropT > 0) continue;
+      var pulse = 1 + Math.sin(this.time * 2.2 + mi * 2) * 0.05;
+      var rad = (m.dragId !== -1 || m.gliding)
+        ? m.effR * 1.05
+        : m.effR * 0.72;
+      rad *= pulse;
+      ctx.globalAlpha = ((m.dragId !== -1 || m.gliding) ? 0.5 : 0.3) * this.glowLevel;
+      ctx.drawImage(this.glowCanvas, m.x - rad, m.y - rad, rad * 2, rad * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
   }
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
 
   /* --- 粒 --- */
   var nC = this.colors.length;
@@ -273,6 +294,20 @@ Renderer.prototype.draw = function (sim, dt) {
       ctx.stroke();
     }
   }
+
+  /* --- 触った瞬間の白リング(タッチ即応) --- */
+  for (var tp = this.touchPulses.length - 1; tp >= 0; tp--) {
+    var pl = this.touchPulses[tp];
+    pl.t += dt;
+    if (pl.t > 0.35) { this.touchPulses.splice(tp, 1); continue; }
+    ctx.globalAlpha = 0.55 * (1 - pl.t / 0.35);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(pl.x, pl.y, 16 + pl.t * 240, 0, 6.2832);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 
   /* --- タップ先のしるし(波紋) --- */
   if (this.ripple) {
@@ -320,30 +355,58 @@ Renderer.prototype.draw = function (sim, dt) {
   for (var mi3 = 0; mi3 < 2; mi3++) {
     var m3 = sim.magnets[mi3];
     if (!m3.active) continue;
-    var spr = this.magnetSprites[m3.style];
+    // 磁場オフ中は眠り顔、落下中は空から降ってくる
+    var spr = (sim.fieldOff > 0)
+      ? this.magnetSprites[m3.style].asleep
+      : this.magnetSprites[m3.style].awake;
     var sw = 96, sh = 100;
     var grabbed = m3.dragId !== -1;
     var sc = grabbed ? 1.12 : 1;
     if (m3.wobble > 0) sc += Math.sin(m3.wobble * 18) * 0.09 * m3.wobble;
     var tilt = Math.max(-0.3, Math.min(0.3, m3.speedX * 0.00045));
-    var bob = grabbed ? 0 : Math.sin(this.time * 1.8 + mi3 * 3) * 2.5;
+    var dropping = m3.dropT > 0;
+    var dropOff = 0, shadowShrink = 1;
+    if (dropping) {
+      var q = 1 - m3.dropT / CONFIG.magnet.dropTime;    // 0→1
+      dropOff = CONFIG.magnet.dropHeight * (1 - q * q); // 重力風に加速して落ちる
+      shadowShrink = Math.max(0.4, 1 - dropOff / 300);
+    }
+    var bob = (grabbed || dropping) ? 0 : Math.sin(this.time * 1.8 + mi3 * 3) * 2.5;
 
     ctx.save();
     ctx.translate(m3.x, m3.y + bob);
-    ctx.rotate(tilt);
-    ctx.scale(sc, sc);
-    // やわらかい影
-    ctx.globalAlpha = 0.25;
+    // やわらかい影(落下中は地面に残り、高いほど小さく薄く)
+    ctx.globalAlpha = 0.25 * shadowShrink;
     ctx.fillStyle = "#000";
     ctx.beginPath();
-    ctx.ellipse(0, sh * 0.46, sw * 0.34, 9, 0, 0, 6.2832);
+    ctx.ellipse(0, sh * 0.46, sw * 0.34 * shadowShrink, 9 * shadowShrink, 0, 0, 6.2832);
     ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.drawImage(spr, -sw / 2, -sh / 2, sw, sh);
+    ctx.rotate(tilt);
+    ctx.scale(sc, sc);
+    ctx.drawImage(spr, -sw / 2, -sh / 2 - dropOff / sc, sw, sh);
     ctx.restore();
   }
 };
 
 Renderer.prototype.showRipple = function (x, y) {
   this.ripple = { x: x, y: y, t: 0 };
+};
+
+Renderer.prototype.showTouchPulse = function (x, y) {
+  if (this.touchPulses.length >= 6) this.touchPulses.shift();
+  this.touchPulses.push({ x: x, y: y, t: 0 });
+};
+
+/* リサイズ時: 演出用の座標も盤面に合わせて追従させる */
+Renderer.prototype.remap = function (map) {
+  if (this.ripple) {
+    this.ripple.x = map.ox + this.ripple.x * map.sx;
+    this.ripple.y = map.oy + this.ripple.y * map.sy;
+  }
+  for (var i = 0; i < this.touchPulses.length; i++) {
+    var p = this.touchPulses[i];
+    p.x = map.ox + p.x * map.sx;
+    p.y = map.oy + p.y * map.sy;
+  }
 };

@@ -10,13 +10,14 @@
  * ======================================================= */
 "use strict";
 
-function InputHandler(canvas, sim, renderer, onSound) {
+function InputHandler(canvas, sim, renderer, onSound, onActivity) {
   this.canvas = canvas;
   this.sim = sim;
   this.renderer = renderer;
-  this.onSound = onSound;   // (name) => void
+  this.onSound = onSound;         // (name) => void
+  this.onActivity = onActivity || null;   // 操作があった(おさそいのリセット)
 
-  /* pointerId → { magnet, startX, startY, startT, moved, chase } */
+  /* pointerId → { magnet, startX, startY, startT, moved, chase, multi } */
   this.pointers = {};
 
   var self = this;
@@ -42,13 +43,21 @@ InputHandler.prototype._down = function (e) {
   if (this.canvas.setPointerCapture) {
     try { this.canvas.setPointerCapture(e.pointerId); } catch (err) {}
   }
+  if (this.onActivity) this.onActivity();
   var p = this._pos(e);
+
+  /* 触った瞬間の反応(<100ms): 近くの寝粒が跳ね、白リングと軽い音 */
+  var pokeN = this.sim.pokeAt(p.x, p.y);
+  this.renderer.showTouchPulse(p.x, p.y);
+  if (pokeN > 0) this.onSound("poke");
+
   var info = {
     startX: p.x, startY: p.y, x: p.x, y: p.y,
     startT: performance.now() / 1000,
     moved: false,
     magnet: -1,
     chase: false,
+    multi: false,
   };
 
   var near = this.sim.nearestMagnet(p.x, p.y);
@@ -58,12 +67,20 @@ InputHandler.prototype._down = function (e) {
     this.onSound("grab");
   }
   this.pointers[e.pointerId] = info;
+
+  /* 手のひら対策: 同時3本以上なら、遡って全ポインタのタップを無効化 */
+  var n = 0, k;
+  for (k in this.pointers) n++;
+  if (n >= 3) {
+    for (k in this.pointers) this.pointers[k].multi = true;
+  }
 };
 
 InputHandler.prototype._move = function (e) {
   var info = this.pointers[e.pointerId];
   if (!info) return;
   e.preventDefault();
+  if (this.onActivity) this.onActivity();
   var p = this._pos(e);
   info.x = p.x; info.y = p.y;
 
@@ -96,19 +113,20 @@ InputHandler.prototype._up = function (e) {
   var info = this.pointers[e.pointerId];
   if (!info) return;
   e.preventDefault();
+  if (this.onActivity) this.onActivity();
   var now = performance.now() / 1000;
 
   if (info.magnet >= 0 && !info.chase) {
     this.sim.releaseMagnet(info.magnet);
   }
 
-  var isTap = !info.moved && (now - info.startT) <= CONFIG.input.tapMaxTime;
+  var isTap = !info.moved && !info.multi && (now - info.startT) <= CONFIG.input.tapMaxTime;
   if (isTap && info.magnet < 0) {
     // 枠の内側だけ有効
     var s = this.sim;
     if (info.x > s.trayL && info.x < s.trayR && info.y > s.trayT && info.y < s.trayB) {
       var result = s.tapAt(info.x, info.y);
-      if (result === "place") this.onSound("pop");
+      // "place" の音は着地時("land" イベント)に鳴る
       if (result === "go") {
         this.renderer.showRipple(info.x, info.y);
         this.onSound("pop");
@@ -124,4 +142,10 @@ InputHandler.prototype._cancel = function (e) {
     this.sim.releaseMagnet(info.magnet);
   }
   delete this.pointers[e.pointerId];
+};
+
+/* いま指が触れているか(おさそいの抑制用) */
+InputHandler.prototype.anyPointerDown = function () {
+  for (var k in this.pointers) return true;
+  return false;
 };
