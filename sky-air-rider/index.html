@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#7ec8ff">
+<title>そらのエアライダー</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⭐</text></svg>">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/addons/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="game">
+  <canvas id="gl"></canvas>
+  <canvas id="fx"></canvas>
+
+  <!-- ===== HUD ===== -->
+  <div id="hud" class="hidden">
+    <div id="star-counter" class="hud-chip">
+      <span class="star-icon">★</span><span id="star-count">0</span>
+    </div>
+    <div id="lap-counter" class="hud-chip">
+      <span class="lap-icon">🏁</span><span id="lap-count">1</span><span class="lap-unit">しゅうめ</span>
+    </div>
+    <button id="mute-btn" class="round-btn" aria-label="おと">🔊</button>
+    <div id="charge-wrap">
+      <div id="charge-bar"><div id="charge-fill"></div></div>
+      <div id="charge-label">ながおしで ためる!</div>
+    </div>
+    <div id="toast"></div>
+  </div>
+
+  <!-- ===== TITLE ===== -->
+  <div id="title-screen">
+    <div class="sky-deco">
+      <div class="css-cloud c1"></div>
+      <div class="css-cloud c2"></div>
+      <div class="css-cloud c3"></div>
+      <div class="css-star s1">✦</div>
+      <div class="css-star s2">✦</div>
+      <div class="css-star s3">✦</div>
+      <div class="css-star s4">✦</div>
+    </div>
+    <div id="logo">
+      <div id="logo-top">そらの</div>
+      <div id="logo-main">エアライダー</div>
+      <div id="logo-star">⭐</div>
+    </div>
+    <button id="start-btn">すたーと!</button>
+    <div id="howto">
+      <div class="howto-item"><span class="howto-icon">👈👉</span><span>ゆびで うごかす</span></div>
+      <div class="howto-item"><span class="howto-icon">👇⏱️</span><span>ながおし → はなすと ビューン!</span></div>
+      <div class="howto-item"><span class="howto-icon">⭐</span><span>ほしを あつめよう!</span></div>
+    </div>
+  </div>
+
+  <!-- ===== BIG MESSAGE (lap / ring) ===== -->
+  <div id="big-msg" class="hidden"></div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
