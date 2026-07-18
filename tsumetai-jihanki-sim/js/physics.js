@@ -122,8 +122,8 @@ export class World {
   }
 
   addBody(b) { this.bodies.push(b); return b; }
-  addSeg(s) { this.segs.push(s); return s; }
-  addFlap(f) { this.flaps.push(f); return f; }
+  addSeg(s) { this.segs.push(s); this._segsDirty = true; return s; }
+  addFlap(f) { this.flaps.push(f); this._segsDirty = true; return f; }
   addSensor(s) { this.sensors.push(s); return s; }
   removeBody(b) {
     b.dead = true;
@@ -167,33 +167,61 @@ export class World {
       if (f.angle > f.max) { f.angle = f.max; if (f.w > 0) f.w = -f.w * 0.15; }
       f.torque = 0;
     }
-    // ---- 接触検出 ----
+    // ---- 接触検出 (レイヤー別バケツで探索を限定) ----
     const contacts = this._contacts;
     contacts.length = 0;
     const bodies = this.bodies;
-    for (let i = 0; i < bodies.length; i++) {
-      const b = bodies[i];
+    // 静的コライダのレイヤー索引はキャッシュ (追加時に無効化)
+    if (!this._segsByLayer || this._segsDirty) {
+      this._segsByLayer = new Map();
+      for (const s of this.segs) {
+        let arr = this._segsByLayer.get(s.layer);
+        if (!arr) this._segsByLayer.set(s.layer, arr = []);
+        arr.push(s);
+      }
+      this._flapsByLayer = new Map();
+      for (const f of this.flaps) {
+        let arr = this._flapsByLayer.get(f.layer);
+        if (!arr) this._flapsByLayer.set(f.layer, arr = []);
+        arr.push(f);
+      }
+      this._segsDirty = false;
+    }
+    // 剛体のレイヤーバケツ (毎ステップ構築: レイヤーは動的に変わる)
+    const buckets = this._buckets ?? (this._buckets = new Map());
+    for (const arr of buckets.values()) arr.length = 0;
+    for (const b of bodies) {
+      let arr = buckets.get(b.layer);
+      if (!arr) buckets.set(b.layer, arr = []);
+      arr.push(b);
+    }
+    for (const b of bodies) {
       if (!b.sleeping) {
         // 対 線分
-        for (const s of this.segs) {
-          if (!s.enabled || s.layer !== b.layer) continue;
+        const segs = this._segsByLayer.get(b.layer);
+        if (segs) for (const s of segs) {
+          if (!s.enabled) continue;
           if (s.filter && !s.filter(b)) continue;
           const c = discSeg(b, s.ax, s.ay, s.bx, s.by);
           if (c) contacts.push({ b, s, nx: c.nx, ny: c.ny, pen: c.pen, cx: c.cx, cy: c.cy, jn: 0, jt: 0, flap: null, b2: null });
         }
         // 対 フラップ
-        for (const f of this.flaps) {
-          if (!f.enabled || f.layer !== b.layer) continue;
+        const flaps = this._flapsByLayer.get(b.layer);
+        if (flaps) for (const f of flaps) {
+          if (!f.enabled) continue;
           const tip = f.tip();
           const c = discSeg(b, f.px_, f.py_, tip[0], tip[1]);
           if (c) contacts.push({ b, s: f, nx: c.nx, ny: c.ny, pen: c.pen, cx: c.cx, cy: c.cy, jn: 0, jt: 0, flap: f, b2: null });
         }
       }
-      // 対 剛体 (どちらかが起きていれば判定する)
-      for (let j = i + 1; j < bodies.length; j++) {
-        const oj = bodies[j];
-        if (oj.layer !== b.layer) continue;
-        if (b.sleeping && oj.sleeping) continue;
+    }
+    // 対 剛体 (同一レイヤー内のみ)
+    for (const group of buckets.values()) {
+      for (let i = 0; i < group.length; i++) {
+        const b = group[i];
+        for (let j = i + 1; j < group.length; j++) {
+          const oj = group[j];
+          if (b.sleeping && oj.sleeping) continue;
         // A = 起きている側, B = 相手
         let A = b, B = oj;
         if (A.sleeping) { A = oj; B = b; }
@@ -216,6 +244,7 @@ export class World {
           b: A, s: null, b2: B, nx, ny, pen: rr - d, staticOther,
           cx: A.x - nx * A.r, cy: A.y - ny * A.r, jn: 0, jt: 0, flap: null,
         });
+        }
       }
     }
     // ---- 逐次インパルス ----

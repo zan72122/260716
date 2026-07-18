@@ -1,29 +1,19 @@
 /* ============================================================
    vending-state.js — 自販機の頭脳 (状態機械)
-   THREE 非依存。CoinMech と Rack を束ね、
-   credit / 販売シーケンス / 釣銭 / 売切 / 釣銭切れ / 売上 を管理。
-
-   客モード:
-     IDLE → (硬貨受理) CREDITED → (ボタン) VENDING → CHANGE_PAYOUT → IDLE
-     返却レバー: いつでも credit 全額を払出し
-   店員モード:
-     扉開 → {商品補充 / 釣銭補充 / 売上回収} → 扉閉
+   THREE 非依存。CoinMech(+BillValidator) と Rack を束ねる。
+   36押ボタン → SELECTIONS → 30コラム の解決、
+   credit / エスクロー確定・現物返却 / 釣銭 / 売切 / 釣銭切れ /
+   お札中止 / 売上を管理。
    ============================================================ */
-import { PRICES, PRODUCTS, COLUMNS, WALLET_INIT, DENOMS } from './config.js';
+import { PRODUCTS, COLUMNS, SELECTIONS, WALLET_INIT, DENOMS } from './config.js';
 
 export class VendingState {
   /**
-   * emit イベント (UI/音向け):
-   * 'credit' {credit}          金額表示の更新
-   * 'lamps' {}                 ボタンランプ/売切/釣銭切れの再評価
-   * 'vending' {col}            販売開始
-   * 'vendComplete' {col}       販売終了 (商品はシュートへ)
-   * 'changeStart' {amount}     釣銭払出し開始
-   * 'changeDone' {}
-   * 'refund' {amount}
-   * 'walletChange' {}
-   * 'sale' {col, price}
-   * 'doorState' {open}
+   * emit イベント:
+   * 'credit' {credit} / 'lamps' {} / 'vending' {col} / 'vendComplete' {col}
+   * 'changeStart' {amount} / 'changeDone' {} / 'refund' {amount}
+   * 'vendFailed' {col, amount} / 'walletChange' {} / 'sale' {sel, price}
+   * 'doorState' {open} / 'billTaken' {} / 'billBack' {}
    */
   constructor(mech, rack, emit) {
     this.mech = mech;
@@ -34,19 +24,28 @@ export class VendingState {
     this.pendingChange = 0;
     this.pendingCol = -1;
     this.wallet = { ...WALLET_INIT };
-    this.sales = 0;               // 累計売上 (円)
+    this.sales = 0;
     this.salesSinceCollect = 0;
     this.doorOpen = false;
     this.operator = false;
     this.leverHeld = false;
   }
 
-  /* ---------------- メックからのイベントを接続 ---------------- */
+  /* ---------------- メック/ラックのイベント接続 ---------------- */
   onMechEvent(type, data) {
     if (type === 'accept') {
       this.credit += data.denom;
       this.emit('credit', { credit: this.credit });
       this.emit('lamps', {});
+    } else if (type === 'billAccept') {
+      this.credit += 1000;
+      this.emit('credit', { credit: this.credit });
+      this.emit('lamps', {});
+    } else if (type === 'billRejected') {
+      // 吐き出された札は財布に戻る
+      this.wallet.bill++;
+      this.emit('billBack', {});
+      this.emit('walletChange', {});
     } else if (type === 'payoutDone') {
       if (this.phase === 'change') {
         this.phase = 'idle';
@@ -60,12 +59,11 @@ export class VendingState {
     if (type === 'vendDone') {
       if (this.phase === 'vending' && data.col === this.pendingCol) {
         this.emit('vendComplete', { col: data.col });
-        // 釣銭の払出しへ
         if (this.pendingChange > 0) {
           const plan = this.mech.changePlan(this.pendingChange);
           this.phase = 'change';
           this.emit('changeStart', { amount: this.pendingChange });
-          this.mech.payout(plan ?? {});   // plan が null になるのは理論上ない (押下時に検証済)
+          this.mech.payout(plan ?? {});
         } else {
           this.phase = 'idle';
         }
@@ -77,8 +75,7 @@ export class VendingState {
       this.emit('lamps', {});
     } else if (type === 'vendFail') {
       if (this.phase === 'vending' && data.col === this.pendingCol) {
-        // 販売検知できず → 実機同様に全額返金
-        const price = PRICES[COLUMNS[data.col].product];
+        const price = PRODUCTS[COLUMNS[data.col].product].price;
         const amount = price + this.pendingChange;
         this.sales -= price;
         this.salesSinceCollect -= price;
@@ -95,12 +92,10 @@ export class VendingState {
 
   /* ---------------- 客の操作 ---------------- */
 
-  /** 財布から硬貨を投入できるか */
   canInsert(denom) {
     return !this.operator && this.wallet[denom] > 0;
   }
 
-  /** 硬貨投入 (財布から減らして物理へ) */
   insert(denom) {
     if (!this.canInsert(denom)) return false;
     this.wallet[denom]--;
@@ -109,50 +104,65 @@ export class VendingState {
     return true;
   }
 
-  /** ボタンが押せる状態か */
-  buttonEnabled(col) {
+  /** 千円札の挿入 */
+  insertBill() {
+    if (this.operator || this.wallet.bill <= 0) return false;
+    if (!this.mech.bill.insert()) return false;
+    this.wallet.bill--;
+    this.emit('billTaken', {});
+    this.emit('walletChange', {});
+    return true;
+  }
+
+  /** セレクション (押ボタン 0..35) が押せる状態か */
+  buttonEnabled(sel) {
     if (this.operator || this.phase !== 'idle') return false;
+    const col = SELECTIONS[sel].column;
     if (this.rack.soldOut(col)) return false;
-    const price = PRICES[COLUMNS[col].product];
+    const price = PRODUCTS[COLUMNS[col].product].price;
     if (this.credit < price) return false;
-    // 釣銭が払えない取引は成立させない (実機と同じ)
     return this.mech.changePlan(this.credit - price) !== null;
   }
 
-  /** 商品ボタン押下 */
-  pressButton(col) {
-    if (!this.buttonEnabled(col)) return false;
-    const price = PRICES[COLUMNS[col].product];
+  /** 押ボタン押下 (sel = 0..35) */
+  pressButton(sel) {
+    if (!this.buttonEnabled(sel)) return false;
+    const col = SELECTIONS[sel].column;
+    const price = PRODUCTS[COLUMNS[col].product].price;
     this.pendingChange = this.credit - price;
     this.pendingCol = col;
     this.credit = 0;
     this.phase = 'vending';
     this.sales += price;
     this.salesSinceCollect += price;
+    this.mech.commitEscrow();          // 保留硬貨をチューブ/金庫へ
     this.rack.vend(col);
     this.emit('credit', { credit: 0 });
     this.emit('vending', { col });
-    this.emit('sale', { col, price });
+    this.emit('sale', { sel, price });
     this.emit('lamps', {});
     return true;
   }
 
-  /** 返却レバー: 押下で credit を全額払出し + ゲート開放 */
+  /** 返却レバー: エスクロー現物返却 + 残額をチューブから払出し */
   pullLever() {
     this.leverHeld = true;
-    this.mech.setReturnLever(true);
+    const ev = this.mech.escrowValue();
+    this.mech.setReturnLever(true);    // ゲート開 + エスクロー現物返却
     if (this.phase === 'idle' && this.credit > 0) {
-      const amount = this.credit;
-      const plan = this.mech.changePlan(amount);
-      if (plan) {
-        this.credit = 0;
-        this.phase = 'change';
-        this.emit('credit', { credit: 0 });
-        this.emit('refund', { amount });
-        this.mech.payout(plan);
-        this.emit('lamps', {});
+      const rest = this.credit - ev;   // 保留分は現物で返るので差し引く
+      this.credit = 0;
+      this.emit('credit', { credit: 0 });
+      this.emit('refund', { amount: ev + Math.max(0, rest) });
+      if (rest > 0) {
+        const plan = this.mech.changePlan(rest);
+        if (plan) {
+          this.phase = 'change';
+          this.mech.payout(plan);
+        }
+        // 釣銭不足で払えないレアケースは実機同様あきらめる (creditは消える)
       }
-      // 釣銭不足で返せない場合は credit を保持 (実機では起きにくいレアケース)
+      this.emit('lamps', {});
     }
   }
 
@@ -161,7 +171,6 @@ export class VendingState {
     this.mech.setReturnLever(false);
   }
 
-  /** 返却口をタップ → カップの硬貨を財布へ */
   scoopCup() {
     const got = this.mech.collectCup();
     for (const d of got) this.wallet[d]++;
@@ -169,7 +178,6 @@ export class VendingState {
     return got;
   }
 
-  /** 取出口をタップ → 商品を取る */
   takeProduct() {
     return this.rack.take();
   }
@@ -186,13 +194,12 @@ export class VendingState {
     this.emit('doorState', { open });
   }
 
-  /** 商品補充 */
-  restock(col) {
-    if (!this.operator) return -1;
-    return this.rack.restock(col);
+  /** 商品補充: 室(0-2) × 段(0=上,1=下) のトレーへ投入 */
+  restock(chamber, stage) {
+    if (!this.operator) return null;
+    return this.rack.restock(chamber, stage);
   }
 
-  /** 釣銭補充 (財布からではなく業務用コインケースから) */
   refillTube(denom, count = 5) {
     if (!this.operator) return 0;
     const n = this.mech.refillTube(denom, count);
@@ -200,30 +207,43 @@ export class VendingState {
     return n;
   }
 
-  /** 売上回収 */
+  /** 売上回収 (硬貨金庫 + 紙幣スタッカー) */
   collectCash() {
     if (!this.operator) return null;
     const got = this.mech.collectCash();
-    const total = DENOMS.reduce((s, d) => s + d * got[d], 0);
+    const bills = this.mech.bill.collect();
+    const total = DENOMS.reduce((s, d) => s + d * got[d], 0) + bills * 1000;
     this.salesSinceCollect = 0;
-    return { coins: got, total };
+    return { coins: got, bills, total };
   }
 
   /* ---------------- 表示状態 ---------------- */
 
-  /** 釣銭切れランプ (最安商品を500円で買う釣銭が出せない) */
   changeShortage() {
     const minPrice = Math.min(...PRODUCTS.map(p => p.price));
     return this.mech.changeShortage(minPrice);
   }
 
-  lampState(col) {
+  billStop() {
+    return this.mech.bill.billStop;
+  }
+
+  lampState(sel) {
+    const col = SELECTIONS[sel].column;
     if (this.rack.soldOut(col)) return 'soldout';
-    if (this.buttonEnabled(col)) return 'ready';
+    if (this.buttonEnabled(sel)) return 'ready';
     return 'off';
   }
 
+  selectionPrice(sel) {
+    return PRODUCTS[COLUMNS[SELECTIONS[sel].column].product].price;
+  }
+
+  selectionProduct(sel) {
+    return PRODUCTS[COLUMNS[SELECTIONS[sel].column].product];
+  }
+
   walletTotal() {
-    return DENOMS.reduce((s, d) => s + d * this.wallet[d], 0);
+    return DENOMS.reduce((s, d) => s + d * this.wallet[d], 0) + this.wallet.bill * 1000;
   }
 }
