@@ -17,8 +17,9 @@ const PRESETS = {
     landscape: { target: [0.0, 0.95, 0.0], dist: 2.35, yaw: 0.35, pitch: 0.08, fov: 46 },
   },
   operator: {
-    portrait:  { target: [-0.3, 0.98, 0.15], dist: 3.0, yaw: -0.55, pitch: 0.10, fov: 54 },
-    landscape: { target: [-0.25, 1.0, 0.15], dist: 2.5, yaw: -0.55, pitch: 0.08, fov: 48 },
+    // 左ヒンジの扉が開いても庫内が見えるよう、右寄りから覗く
+    portrait:  { target: [-0.15, 0.98, 0.1], dist: 2.9, yaw: 0.62, pitch: 0.10, fov: 54 },
+    landscape: { target: [-0.1, 1.0, 0.1], dist: 2.4, yaw: 0.62, pitch: 0.08, fov: 48 },
   },
   title: {
     portrait:  { target: [0.0, 1.0, 0.0], dist: 3.1, yaw: 0, pitch: 0.06, fov: 50 },
