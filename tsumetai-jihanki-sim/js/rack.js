@@ -1,74 +1,122 @@
 /* ============================================================
-   rack.js — サーペンタインラック / ベンドメック / シュート / フラップ
-   THREE 非依存。コラムごとに独立した 2D 平面 (u=ワールドz, v=y)。
-
-   ・互い違い傾斜棚を商品が転がり落ち、出口で縦列待機
-   ・ベンドメック: 上下2ピン式。1サイクルで正確に1本だけ払出す
-     (上ピンが2本目を保持 → 下ピン退避で1本目落下 → 復帰)
-   ・落下した商品はシュートを滑り、バネ付きフラップを
-     押し開けて取出口に「ガコンッ」と着地する
+   rack.js — 五重サーペンタインラック (実機準拠)
+   3室 × 上下段 × 前後5コラム = 30コラム。
+   各コラムは「ほぼ垂直の細かい蛇行チャンネル」で、出口ランプが
+   ラック前面へ下り、段違いに並んだ2ピン式ベンドメカが1本ずつ払出す。
+   上段の商品は前面落下レーンを通って共通シュートへ落ち、
+   搬出扉(断熱フラップ)を押し開けて取出口に届く。
+   補充はトップトレー: 転がって最初の空きコラムへ物理的に落ちる。
+   THREE 非依存。
    ============================================================ */
 import { Disc, Seg, Sensor, HingeFlap } from './physics.js';
-import { COLUMNS, PRODUCTS, RACK, VEND, CHUTE, genShelves } from './config.js';
+import {
+  COLUMNS, CHAMBERS, PRODUCTS, RACK, VEND, CHUTE, TRAY, genChannel,
+} from './config.js';
 
 export class Rack {
   /**
    * emit イベント:
    * 'vendStart' {col} / 'productDrop' {col} / 'vendDone' {col}
+   * 'vendRetry' {col, retry} / 'vendFail' {col}
    * 'productExit' {col, body} / 'productAtPort' {col, body}
    * 'soldOut' {col} / 'productSpawn' {col, body} / 'productRemove' {body}
+   * 'trayIn' {col, body}  (トレーからコラムに入った)
    */
   constructor(world, emit, rng) {
     this.world = world;
     this.emit = emit;
     this.rng = rng ?? (() => 0.5);
-    this.cols = COLUMNS.map((c, i) => ({
+    this.cols = COLUMNS.map((conf, i) => ({
       index: i,
-      conf: c,
-      product: PRODUCTS[c.product],
+      conf,
+      product: PRODUCTS[conf.product],
       layer: `col${i}`,
-      stock: [],          // 待機中の商品 body (未払出)
-      vendT: -1,          // ベンドサイクル経過時間 (-1: 停止)
-      pinLower: null,
-      pinUpper: null,
-      flap: null,
-      shelves: null,
-      spawnQueue: 0,      // 初期投入の残り
-      spawnTimer: 0,
+      chuteLayer: `chute${conf.chamber}`,
+      stock: [],
+      vendT: -1,
+      vendDetected: false,
+      vendRetries: 0,
+      capacity: 0,
     }));
+    this.trayBodies = { };            // trayKey → body[]
+    this._buildChutes();
     for (const col of this.cols) this._buildColumn(col);
+    this._buildTrays();
   }
 
+  /* ---------------- 室ごとの共通シュート & フラップ ---------------- */
+  _buildChutes() {
+    const W = this.world;
+    this.chuteFlaps = [];
+    for (let ch = 0; ch < CHAMBERS.length; ch++) {
+      const L = `chute${ch}`;
+      const add = (a, b, o = {}) => W.addSeg(new Seg({
+        layer: L, a, b, material: 'chute', friction: 0.22, restitution: 0.1, ...o,
+      }));
+      add(CHUTE.tray.a, CHUTE.tray.b);
+      add(CHUTE.backWall.a, CHUTE.backWall.b, { material: 'rackwall' });
+      add(CHUTE.portFloor.a, CHUTE.portFloor.b, { material: 'port', friction: 0.4, restitution: 0.08 });
+      add([CHUTE.tray.b[0], CHUTE.tray.b[1]], [CHUTE.portFloor.a[0], CHUTE.portFloor.a[1]]);
+      // 落下デフレクタ: 落下運動量を前方向へ変換して搬出扉へ叩き込む
+      add(CHUTE.deflector.a, CHUTE.deflector.b, { material: 'chute', friction: 0.12, restitution: 0.15 });
+      // 搬出扉 (庫内断熱フラップ。商品が押し開ける)
+      const inner = W.addFlap(new HingeFlap({
+        layer: L,
+        pivot: CHUTE.innerFlap.pivot,
+        len: CHUTE.innerFlap.len,
+        restAngle: CHUTE.innerFlap.restAngle,
+        inertia: CHUTE.innerFlap.inertia,
+        k: CHUTE.innerFlap.k, c: CHUTE.innerFlap.c,
+        min: -0.02, max: CHUTE.innerFlap.maxAngle,
+        material: 'innerflap',
+      }));
+      // 外フラッパー (取出口扉)
+      const outer = W.addFlap(new HingeFlap({
+        layer: L,
+        pivot: CHUTE.flap.pivot,
+        len: CHUTE.flap.len,
+        inertia: CHUTE.flap.inertia,
+        k: CHUTE.flap.k, c: CHUTE.flap.c,
+        min: -0.02, max: CHUTE.flap.maxAngle,
+        material: 'flap',
+      }));
+      this.chuteFlaps.push({ inner, outer });
+      // 取出口到達センサー (搬出扉のすぐ前を通過したら到達。縦線で確実に拾う)
+      W.addSensor(new Sensor({
+        layer: L,
+        a: [0.248, 0.345], b: [0.248, 0.50],
+        tag: `port-${ch}`,
+        cb: (body) => this._onAtPort(body),
+      }));
+    }
+  }
+
+  /* ---------------- コラム ---------------- */
   _buildColumn(col) {
     const W = this.world;
     const L = col.layer;
     const r = col.product.r;
     const isPet = col.product.kind === 'pet';
+    const gen = genChannel(r, col.conf.slot, col.conf.stage);
+    col.gen = gen;
     const add = (a, b, o = {}) => W.addSeg(new Seg({
       layer: L, a, b, material: 'rack',
-      friction: isPet ? 0.5 : 0.32,
+      friction: isPet ? 0.45 : 0.3,
       restitution: isPet ? 0.06 : 0.12,
       ...o,
     }));
+    for (const s of gen.segs) {
+      add(s.a, s.b, s.kind === 'bump' ? { material: 'rack', restitution: 0.18 } : {});
+    }
 
-    // ---- 互い違い棚 ----
-    const gen = genShelves(r);
-    col.shelves = gen.shelves;
-    col.loadZ = gen.loadZ;
-    for (const s of col.shelves) add(s.a, s.b);
-
-    // ---- 前後の壁 ----
-    add([RACK.zFront + 0.004, 1.80], [RACK.zFront + 0.004, RACK.exitY + 0.03], { material: 'rackwall' });
-    add([RACK.zBack - 0.006, 1.82], [RACK.zBack - 0.006, 0.55], { material: 'rackwall' });
-
-    // ---- ベンドメック (2ピン)。位置は最終進入棚の実ラインから計算 ----
-    const fs = col.shelves[col.shelves.length - 1];
+    // ---- ベンドメック (2ピン)。位置は出口ランプの実ラインから計算 ----
+    const fs = gen.ramp;
     const shelfYat = (z) => {
       const t = (z - fs.a[0]) / (fs.b[0] - fs.a[0]);
       return fs.a[1] + (fs.b[1] - fs.a[1]) * t;
     };
-    const zP = RACK.exitZ + r - 0.004;            // 下ピン (1本目を棚上で保持)
-    const zU = zP - 2 * r - 0.006;                // 上ピン (2本目を保持)
+    const zP = gen.rampEndZ - 0.006;
+    const zU = zP - 2 * r - 0.006;
     col.pinLower = add([zP, shelfYat(zP) - 0.015], [zP, shelfYat(zP - r) + r * 0.9],
       { material: 'pin', restitution: 0.05 });
     col.pinUpper = add([zU, shelfYat(zU) - 0.01], [zU, shelfYat(zU - r) + r * 0.9],
@@ -77,81 +125,191 @@ export class Rack {
     col.zPinLower = zP; col.zPinUpper = zU;
     col.shelfYat = shelfYat;
 
-    // ---- 出口の落下レーン ----
-    // 後壁の上端は棚ラインの下に収める (突き抜けると列が堰き止められる)
-    const wallZ = RACK.exitZ - r - 0.015;
-    add([wallZ, shelfYat(wallZ) - 0.004], [wallZ, 0.52], { material: 'rackwall' });
-    add([zP + 0.048, RACK.exitY + 0.01], [zP + 0.048, 0.52], { material: 'rackwall' });
-
-    // ---- シュート & 取出口 ----
-    add(CHUTE.tray.a, CHUTE.tray.b, { material: 'chute', friction: 0.22 });
-    add(CHUTE.portFloor.a, CHUTE.portFloor.b, { material: 'port', friction: 0.4, restitution: 0.08 });
-    // 取出口の奥の壁 (トレイ終端から取出口床への段差)
-    add([CHUTE.tray.b[0], CHUTE.tray.b[1]], [CHUTE.portFloor.a[0], CHUTE.portFloor.a[1]], { material: 'chute' });
-
-    // ---- フラップ (バネ付きヒンジ) ----
-    col.flap = W.addFlap(new HingeFlap({
-      layer: L,
-      pivot: CHUTE.flap.pivot,
-      len: CHUTE.flap.len,
-      inertia: CHUTE.flap.inertia,
-      k: CHUTE.flap.k, c: CHUTE.flap.c,
-      min: -0.02, max: CHUTE.flap.maxAngle,
-      material: 'flap',
-    }));
+    // 収容力: 垂直部 + ランプ部
+    const vertLen = gen.top - gen.ramp.a[1];
+    const rampLen = Math.hypot(fs.b[0] - fs.a[0], fs.b[1] - fs.a[1]);
+    col.capacity = Math.max(3, Math.floor(vertLen / (1.98 * r)) + Math.floor(rampLen / (2 * r)) - 1);
 
     // ---- センサー ----
+    // 販売検知 (出口直後)
     W.addSensor(new Sensor({
       layer: L,
-      a: [RACK.exitZ - r - 0.02, 0.70], b: [zP + 0.05, 0.70],
+      a: [gen.rampEndZ - 0.01, gen.yExit - 0.055], b: [RACK.laneZ[1] + 0.01, gen.yExit - 0.055],
       tag: `exit-${col.index}`,
       cb: (body) => this._onExit(col, body),
     }));
+    // シュート層への移管 (落下レーンの下端)
     W.addSensor(new Sensor({
       layer: L,
-      a: [0.10, 0.415], b: [0.315, 0.415],
-      tag: `port-${col.index}`,
-      cb: (body) => this._onAtPort(col, body),
+      a: [0.02, 0.585], b: [RACK.laneZ[1] + 0.02, 0.585],
+      tag: `tochute-${col.index}`,
+      cb: (body) => {
+        body.layer = col.chuteLayer;
+        body.wake();
+      },
     }));
   }
 
+  /* ---------------- トップトレー (補充) ---------------- */
+  _buildTrays() {
+    const W = this.world;
+    for (let ch = 0; ch < CHAMBERS.length; ch++) {
+      for (let stage = 0; stage < 2; stage++) {
+        const L = `tray${ch}${stage}`;
+        const yF = stage === 0 ? TRAY.upperY : TRAY.lowerY;
+        const yB = yF - TRAY.tilt;
+        const trayYat = (z) => yF + (z - TRAY.frontZ) * (yB - yF) / (TRAY.backZ - TRAY.frontZ);
+        const cols = this.cols.filter(c => c.conf.chamber === ch && c.conf.stage === stage);
+        // 前から奥へ: 開口(コラム口)ごとに実体トレーを分割
+        const openings = cols
+          .map(c => ({ col: c, z0: c.gen.mouthZ - c.gen.half - 0.004, z1: c.gen.mouthZ + c.gen.half + 0.004 }))
+          .sort((a, b) => b.z0 - a.z0);   // 前(z大)から
+        let zCur = TRAY.frontZ;
+        const add = (a, b, o = {}) => W.addSeg(new Seg({
+          layer: L, a, b, material: 'chute', friction: 0.25, restitution: 0.1, ...o,
+        }));
+        for (const op of openings) {
+          add([zCur, trayYat(zCur)], [op.z1, trayYat(op.z1)]);
+          // 開口: コラムが満杯のときだけ閉じるゴーストブリッジ
+          const colRef = op.col;
+          W.addSeg(new Seg({
+            layer: L,
+            a: [op.z1, trayYat(op.z1)], b: [op.z0, trayYat(op.z0)],
+            material: 'chute', friction: 0.25,
+            filter: () => this.stockCount(colRef.index) >= colRef.capacity,
+            tag: `traybridge-${colRef.index}`,
+          }));
+          // 開口下のセンサー: コラムに商品を割り当てる
+          W.addSensor(new Sensor({
+            layer: L,
+            a: [op.z0 - 0.005, trayYat(op.z0) - 0.055], b: [op.z1 + 0.005, trayYat(op.z0) - 0.055],
+            tag: `trayin-${colRef.index}`,
+            cb: (body) => this._onTrayIn(colRef, body),
+          }));
+          zCur = op.z0;
+        }
+        add([zCur, trayYat(zCur)], [TRAY.backZ, yB]);
+        // 端の止め壁
+        add([TRAY.backZ, yB + 0.10], [TRAY.backZ, yB - 0.01], { material: 'rackwall' });
+        add([TRAY.frontZ + 0.012, yF + 0.10], [TRAY.frontZ + 0.012, yF - 0.01], { material: 'rackwall' });
+      }
+    }
+  }
+
+  _onTrayIn(col, body) {
+    body.layer = col.layer;
+    body.wake();
+    const key = `tray${col.conf.chamber}${col.conf.stage}`;
+    const arr = this.trayBodies[key];
+    if (arr) {
+      const i = arr.indexOf(body);
+      if (i >= 0) arr.splice(i, 1);
+    }
+    col.stock.push(body);
+    body.userData.col = col.index;
+    this.emit('trayIn', { col: col.index, body });
+  }
+
   /* ---------------- 商品スポーン ---------------- */
-  _spawnProduct(col, initial = false) {
+  _makeBody(col, x, y, opts = {}) {
     const p = col.product;
     const body = new Disc({
-      layer: col.layer,
-      x: col.loadZ + (this.rng() - 0.5) * 0.01,
-      y: RACK.loadY,
+      layer: opts.layer ?? col.layer,
+      x, y,
       r: p.r,
       m: p.kind === 'pet' ? 0.56 : (p.r < 0.03 ? 0.21 : 0.39),
-      vx: (col.loadZ > 0 ? -1 : 1) * (0.18 + this.rng() * 0.1),
-      vy: -0.1,
-      w: (this.rng() - 0.5) * 3,
+      vx: opts.vx ?? 0, vy: opts.vy ?? 0,
+      w: opts.w ?? 0,
       restitution: p.kind === 'pet' ? 0.06 : 0.14,
       friction: p.kind === 'pet' ? 0.5 : 0.3,
       rollResist: p.kind === 'pet' ? 0.7 : 0.10,
       userData: { kind: 'product', product: p, col: col.index },
     });
     this.world.addBody(body);
-    col.stock.push(body);
-    this.emit('productSpawn', { col: col.index, body, initial });
+    this.emit('productSpawn', { col: col.index, body });
     return body;
   }
 
-  /** 初期在庫を投入予約 (settle シミュレーションと併用) */
-  preload(stockCounts) {
-    this.cols.forEach((col, i) => {
-      col.spawnQueue = Math.min(stockCounts[i] ?? col.conf.capacity, col.conf.capacity);
-      col.spawnTimer = 0.05 + i * 0.11;   // コラムごとに時間差
-    });
+  /** 初期在庫を直接配置 (出口ランプ→垂直チャンネルに沿って積む)。settle 約2秒で安定 */
+  preloadDirect(counts) {
+    for (const col of this.cols) {
+      const n = Math.min(counts?.[col.index] ?? (col.capacity - 1), col.capacity);
+      const r = col.product.r;
+      const gen = col.gen;
+      const ramp = gen.ramp;
+      const rampDir = [ramp.a[0] - ramp.b[0], ramp.a[1] - ramp.b[1]];
+      const rampLen = Math.hypot(rampDir[0], rampDir[1]);
+      rampDir[0] /= rampLen; rampDir[1] /= rampLen;
+      // 1本目: 下ピンに接する位置
+      let px = col.zPinLower - r;
+      let py = col.shelfYat(px) + r + 0.001;
+      let placed = 0;
+      // ランプ上
+      while (placed < n) {
+        this.world.addBody(this._makeStocked(col, px, py));
+        placed++;
+        const nx = px + rampDir[0] * (2 * r + 0.002);
+        if (nx > ramp.a[0] - 0.002) {
+          px = nx; py = col.shelfYat(px) + r + 0.001;
+        } else break;
+      }
+      // 垂直チャンネル内 (交互オフセット)
+      let y = ramp.a[1] + 2 * r;
+      let side = 1;
+      while (placed < n && y < gen.top - r) {
+        const z = gen.mouthZ + side * (gen.half - r) * 0.55;
+        this.world.addBody(this._makeStocked(col, z, y));
+        placed++;
+        y += 1.98 * r;
+        side = -side;
+      }
+    }
   }
 
-  /** 店員: 1本補充 (在庫数を返す。満杯なら -1) */
-  restock(colIndex) {
-    const col = this.cols[colIndex];
-    if (col.stock.length + col.spawnQueue >= col.conf.capacity) return -1;
-    this._spawnProduct(col);
-    return col.stock.length;
+  _makeStocked(col, x, y) {
+    const p = col.product;
+    const body = new Disc({
+      layer: col.layer, x, y,
+      r: p.r,
+      m: p.kind === 'pet' ? 0.56 : (p.r < 0.03 ? 0.21 : 0.39),
+      restitution: p.kind === 'pet' ? 0.06 : 0.14,
+      friction: p.kind === 'pet' ? 0.5 : 0.3,
+      rollResist: p.kind === 'pet' ? 0.7 : 0.10,
+      userData: { kind: 'product', product: p, col: col.index },
+    });
+    col.stock.push(body);
+    this.emit('productSpawn', { col: col.index, body });
+    return body;
+  }
+
+  /** 店員: 補充。トレーに商品を1本投げ込む → 転がって空きコラムへ落ちる */
+  restock(chamber, stage) {
+    const cols = this.cols.filter(c => c.conf.chamber === chamber && c.conf.stage === stage);
+    if (!cols.some(c => this.stockCount(c.index) < c.capacity)) return null;
+    const key = `tray${chamber}${stage}`;
+    this.trayBodies[key] = (this.trayBodies[key] ?? []).filter(b => !b.dead);
+    if (this.trayBodies[key].length >= 2) return null;   // トレー渋滞
+    // このトレーで一番空いているコラムの商品種を補充 (実運用と同じ)
+    const target = cols.reduce((a, b) =>
+      (this.stockCount(a.index) / a.capacity <= this.stockCount(b.index) / b.capacity) ? a : b);
+    const p = target.product;
+    const yF = stage === 0 ? TRAY.upperY : TRAY.lowerY;
+    const body = new Disc({
+      layer: key,
+      x: TRAY.frontZ - 0.02, y: yF + 0.05,
+      r: p.r,
+      m: p.kind === 'pet' ? 0.56 : (p.r < 0.03 ? 0.21 : 0.39),
+      vx: -0.35 - this.rng() * 0.1, vy: -0.05,
+      w: (this.rng() - 0.5) * 2,
+      restitution: p.kind === 'pet' ? 0.06 : 0.14,
+      friction: p.kind === 'pet' ? 0.5 : 0.3,
+      rollResist: p.kind === 'pet' ? 0.7 : 0.10,
+      userData: { kind: 'product', product: p, col: -1, onTray: true },
+    });
+    this.world.addBody(body);
+    this.trayBodies[key].push(body);
+    this.emit('productSpawn', { col: -1, body });
+    return { product: p, chamber, stage };
   }
 
   /* ---------------- 販売 ---------------- */
@@ -173,13 +331,11 @@ export class Rack {
   get busy() { return this.cols.some(c => c.vendT >= 0); }
 
   soldOut(colIndex) {
-    const col = this.cols[colIndex];
-    return col.stock.length === 0 && col.spawnQueue === 0;
+    return this.stockCount(colIndex) === 0;
   }
 
   stockCount(colIndex) {
-    const col = this.cols[colIndex];
-    return col.stock.length + col.spawnQueue;
+    return this.cols[colIndex].stock.length;
   }
 
   /* ---------------- 取出口 ---------------- */
@@ -187,7 +343,6 @@ export class Rack {
     return this.world.bodies.filter(b => b.userData.kind === 'product' && b.userData.atPort);
   }
 
-  /** 取出口の商品を取る → body リストを返す (演出は呼び側) */
   take() {
     const got = this.portBodies();
     for (const b of got) {
@@ -200,16 +355,6 @@ export class Rack {
   /* ---------------- 毎シムフレーム ---------------- */
   tick(dt) {
     for (const col of this.cols) {
-      // 初期投入 (時間差で1本ずつ)
-      if (col.spawnQueue > 0) {
-        col.spawnTimer -= dt;
-        if (col.spawnTimer <= 0) {
-          col.spawnQueue--;
-          col.spawnTimer = 0.55;
-          this._spawnProduct(col, true);
-        }
-      }
-      // ベンドサイクル
       if (col.vendT < 0) continue;
       const t0 = col.vendT;
       col.vendT += dt;
@@ -225,18 +370,13 @@ export class Rack {
         this._wakeExit(col);
         this.emit('productDrop', { col: col.index });
       }
-      if (crossed(C.lowerIn)) {
-        col.pinLower.enabled = true;
-      }
+      if (crossed(C.lowerIn)) col.pinLower.enabled = true;
       if (crossed(C.upperOut)) {
         col.pinUpper.enabled = false;
-        // 列全体を起こして前進させる
         this.world.wakeLayer(col.layer);
       }
       if (t1 >= C.done) {
         if (!col.vendDetected && col.vendRetries < 2) {
-          // 販売検知センサーが反応しない (商品がピンまで届いていない):
-          // 実機同様にもう1サイクル回してリトライ
           col.vendRetries++;
           col.vendT = 0;
           this.emit('vendRetry', { col: col.index, retry: col.vendRetries });
@@ -253,19 +393,20 @@ export class Rack {
   }
 
   _wakeExit(col) {
-    this.world.wakeArea(col.layer, RACK.zBack, RACK.exitY - 0.15, RACK.zFront, RACK.exitY + 0.35);
+    const g = col.gen;
+    this.world.wakeArea(col.layer, g.ramp.a[0] - 0.05, g.yExit - 0.12, RACK.laneZ[1], g.ramp.a[1] + 0.3);
   }
 
   _onExit(col, body) {
     const i = col.stock.indexOf(body);
     if (i >= 0) col.stock.splice(i, 1);
     body.userData.inChute = true;
-    col.vendDetected = true;    // 販売検知センサー
+    col.vendDetected = true;
     this.emit('productExit', { col: col.index, body });
   }
 
-  _onAtPort(col, body) {
+  _onAtPort(body) {
     body.userData.atPort = true;
-    this.emit('productAtPort', { col: col.index, body });
+    this.emit('productAtPort', { col: body.userData.col, body });
   }
 }

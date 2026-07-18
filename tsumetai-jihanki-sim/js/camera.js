@@ -9,12 +9,12 @@ import { clamp, lerp, easeInOut } from './lib3d.js';
 /* モード別プリセット {target, dist, yaw, pitch, fov} (縦/横) */
 const PRESETS = {
   customer: {
-    portrait:  { target: [0.02, 0.98, 0.05], dist: 2.75, yaw: 0.10, pitch: 0.06, fov: 52 },
-    landscape: { target: [0.0, 1.00, 0.05], dist: 2.15, yaw: 0.16, pitch: 0.05, fov: 46 },
+    portrait:  { target: [0.02, 0.96, 0.05], dist: 3.05, yaw: 0.10, pitch: 0.06, fov: 52 },
+    landscape: { target: [0.0, 1.00, 0.05], dist: 2.35, yaw: 0.16, pitch: 0.05, fov: 46 },
   },
   xray: {
-    portrait:  { target: [0.02, 0.95, 0.0], dist: 2.95, yaw: 0.35, pitch: 0.10, fov: 52 },
-    landscape: { target: [0.0, 0.95, 0.0], dist: 2.35, yaw: 0.35, pitch: 0.08, fov: 46 },
+    portrait:  { target: [0.02, 0.95, 0.0], dist: 3.25, yaw: 0.35, pitch: 0.10, fov: 52 },
+    landscape: { target: [0.0, 0.95, 0.0], dist: 2.6, yaw: 0.35, pitch: 0.08, fov: 46 },
   },
   operator: {
     // 左ヒンジの扉が開いても庫内が見えるよう、右寄りから覗く

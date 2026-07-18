@@ -135,6 +135,47 @@ export class GameAudio {
     this._compNodes = null;
   }
 
+  /** 汎用のガチャ/カチャ音 (エスクロー扉・トレー着地など) */
+  clunk(vol = 0.5) { this._clunk(vol); }
+
+  /** 紙幣搬送モーター (挿入) */
+  billFeed() {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const o = c.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.linearRampToValueAtTime(170, t + 1.0);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 700;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.06, t + 0.08);
+    g.gain.setValueAtTime(0.06, t + 1.0);
+    g.gain.exponentialRampToValueAtTime(0.0005, t + 1.25);
+    o.connect(lp); lp.connect(g); g.connect(this.sfxGain);
+    o.start(t); o.stop(t + 1.3);
+  }
+
+  /** 紙幣の吐き出し (逆搬送) */
+  billReject() {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const o = c.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(165, t);
+    o.frequency.linearRampToValueAtTime(120, t + 0.9);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 650;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.055, t + 0.06);
+    g.gain.setValueAtTime(0.055, t + 0.9);
+    g.gain.exponentialRampToValueAtTime(0.0005, t + 1.05);
+    o.connect(lp); lp.connect(g); g.connect(this.sfxGain);
+    o.start(t); o.stop(t + 1.1);
+  }
+
   _clunk(vol = 0.5) {
     const c = this.ctx, t = c.currentTime;
     const o = c.createOscillator();

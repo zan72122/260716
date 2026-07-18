@@ -1,5 +1,6 @@
 /* ============================================================
    main.js — つめた〜い じはんきシミュレーター エントリポイント
+   (実機準拠版: FR30A6R40TK)
    固定タイムステップ物理 + 描画補間 + モード管理 + 全イベント結線
    ============================================================ */
 import * as THREE from 'three';
@@ -14,13 +15,15 @@ import { Rack } from './rack.js';
 import { VendingState } from './vending-state.js';
 import { MachineScene } from './machine-scene.js';
 import { MechVisuals } from './mech-visuals.js';
-import { ColdFx, addCondensation } from './fx.js';
+import { ColdFx } from './fx.js';
 import { CameraRig } from './camera.js';
 import { InputManager } from './input.js';
 import { UI } from './ui.js';
 import { GameAudio } from './audio.js';
 import { makeRng } from './lib3d.js';
-import { PHYS, PRODUCTS, COLUMNS, PRICES, CABINET, TIMES, DENOMS, MECH } from './config.js';
+import {
+  PHYS, PRODUCTS, COLUMNS, SELECTIONS, CHAMBERS, CABINET, TIMES, FASCIA,
+} from './config.js';
 import { setupDebug } from './debug.js';
 
 /* ================= レンダラ ================= */
@@ -39,11 +42,11 @@ const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 30);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.22, 0.5, 0.82);
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.5, 0.85);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-/* ---- 環境マップ (金属の映り込み用・手続き生成) ---- */
+/* ---- 環境マップ (金属の映り込み) ---- */
 {
   const envCanvas = document.createElement('canvas');
   envCanvas.width = 128; envCanvas.height = 64;
@@ -68,13 +71,13 @@ composer.addPass(new OutputPass());
 
 /* ---- ライティング ---- */
 {
-  scene.add(new THREE.HemisphereLight(0xcfe4f4, 0x3a3f46, 0.75));
-  const sun = new THREE.DirectionalLight(0xfff2df, 1.45);
-  sun.position.set(1.6, 2.6, 2.2);
+  scene.add(new THREE.HemisphereLight(0xcfe4f4, 0x3a3f46, 0.8));
+  const sun = new THREE.DirectionalLight(0xfff2df, 1.35);
+  sun.position.set(1.7, 2.6, 2.3);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left = -1.4;
-  sun.shadow.camera.right = 1.4;
+  sun.shadow.camera.left = -1.6;
+  sun.shadow.camera.right = 1.6;
   sun.shadow.camera.top = 2.2;
   sun.shadow.camera.bottom = -0.2;
   sun.shadow.camera.near = 0.5;
@@ -102,17 +105,9 @@ const fx = new ColdFx(scene);
 const cameraRig = new CameraRig(camera);
 const audio = new GameAudio();
 
-// 商品に結露シェルを付ける
-rackListeners.push((t, d) => {
-  if (t === 'productSpawn') {
-    const e = mv.products.get(d.body.id);
-    if (e) addCondensation(e.grp.children[0], d.body.userData.product);
-  }
-});
-
 /* ================= ゲーム状態 ================= */
 const game = {
-  mode: 'title',        // 'title' | 'play'
+  mode: 'title',
   timeScale: 1,
   xray: false,
   operator: false,
@@ -121,6 +116,7 @@ const game = {
   doorOpen: false,
   muted: false,
   leverTimer: 0,
+  cupLidTimer: 0,
   portToastCount: 0,
   settled: false,
   time: 0,
@@ -131,6 +127,17 @@ const game = {
 const ui = new UI({
   onInsert(denom) {
     if (game.mode !== 'play' || game.operator) return;
+    if (denom === 'bill') {
+      audio.unlock();
+      if (state.insertBill()) {
+        audio.billFeed();
+        ui.flashCoin('bill');
+      } else if (state.billStop()) {
+        audio.buzz();
+        ui.toast('お札中止ランプが\nついているよ');
+      }
+      return;
+    }
     if (state.insert(denom)) {
       audio.unlock();
       audio.coinInsert();
@@ -150,9 +157,7 @@ const ui = new UI({
     ui.setXray(game.xray);
     if (!game.operator) cameraRig.setMode(game.xray ? 'xray' : 'customer');
   },
-  onOperator() {
-    setOperator(!game.operator);
-  },
+  onOperator() { setOperator(!game.operator); },
   onMute() {
     game.muted = !game.muted;
     audio.setMuted(game.muted);
@@ -178,29 +183,22 @@ function toggleDoor(open) {
   game.doorTarget = open ? 1.85 : 0;
   audio.doorCreak(open);
   if (open) {
-    ui.setOpHint('コラム=補充 / チューブ=釣銭補充 / 金庫=売上回収');
+    ui.setOpHint('ラック(室のたな)をタップ=補充 / チューブ=釣銭補充 / 金庫=売上回収');
   }
 }
 
-/* ================= 3D タップ操作の登録 ================= */
+/* ================= 3D タップ操作 ================= */
 const input = new InputManager(document.getElementById('game'), camera, {
   onTap(tap) {
     if (game.mode !== 'play' || !tap) return;
     audio.unlock();
     handleTap(tap);
   },
-  onOrbit(dx, dy) {
-    if (game.mode === 'play') cameraRig.orbit(dx, dy);
-  },
-  onPinch(scale) {
-    if (game.mode === 'play') cameraRig.pinch(scale);
-  },
+  onOrbit(dx, dy) { if (game.mode === 'play') cameraRig.orbit(dx, dy); },
+  onPinch(scale) { if (game.mode === 'play') cameraRig.pinch(scale); },
 });
 input.register(ms.root);
 
-// ボタン
-for (const b of ms.buttons) b.mesh.userData.tap = { type: 'button', i: b.index };
-// 不可視ヒットボックス
 function mkHit(parent, w, h, d, x, y, z, tap) {
   const m = new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
@@ -211,43 +209,22 @@ function mkHit(parent, w, h, d, x, y, z, tap) {
   parent.add(m);
   return m;
 }
-mkHit(ms.doorContent, 0.09, 0.13, 0.05, 0.27, 1.03, 0.355, { type: 'lever' });
-mkHit(ms.doorContent, 0.13, 0.17, 0.06, 0.367, 0.50, 0.33, { type: 'cup' });
-mkHit(ms.cabinet, CABINET.portX[1] - CABINET.portX[0] + 0.05, 0.3, 0.1, (CABINET.portX[0] + CABINET.portX[1]) / 2, 0.42, 0.3, { type: 'port' });
-// 店員: コラム補充ゾーン
-for (let i = 0; i < COLUMNS.length; i++) {
-  mkHit(ms.cabinet, ms.columnBounds[i + 1] - ms.columnBounds[i] - 0.02, 1.05, 0.46,
-    COLUMNS[i].x, 1.25, -0.06, { type: 'column', i });
-}
-// 店員: 金庫
-ms.cabinetTap = null;
-mv.cashBoxMesh.userData.tap = { type: 'cash' };
-// 店員: チューブ (メッシュはチューブ円筒。userData を仕込む)
-{
-  let idx = 0;
-  for (const child of mv.mechGroup.children) {
-    if (child.geometry && child.geometry.type === 'CylinderGeometry' && child.material.transparent && child.material.opacity < 0.5) {
-      // 透明チューブと判断
-      const denoms = [50, 100, 10, 500];
-      // 位置から金種を逆引き
-      for (const dnm of DENOMS) {
-        if (Math.abs(child.position.x - (mech.channels[dnm]?.cx ?? -1)) < 0.001) {
-          child.userData.tap = { type: 'tube', denom: dnm };
-        }
-      }
-    }
+// 返却レバー / 札口 / つり銭口 / 取出口
+mkHit(ms.doorContent, 0.075, 0.10, 0.05, FASCIA.lever.u, FASCIA.lever.v, 0.365, { type: 'lever' });
+mkHit(ms.doorContent, 0.13, 0.08, 0.05, 0.495, 1.185, 0.365, { type: 'bill' });
+mkHit(ms.doorContent, 0.14, 0.15, 0.07, 0.501, 0.47, 0.35, { type: 'cup' });
+mkHit(ms.cabinet, CABINET.portX[1] - CABINET.portX[0] + 0.06, 0.3, 0.12,
+  (CABINET.portX[0] + CABINET.portX[1]) / 2, 0.43, 0.31, { type: 'port' });
+// 店員: 補充ゾーン (室×段 = 6)
+for (let ch = 0; ch < 3; ch++) {
+  for (let stage = 0; stage < 2; stage++) {
+    mkHit(ms.cabinet, CHAMBERS[ch].width - 0.02, 0.42, 0.6,
+      CHAMBERS[ch].x, stage === 0 ? 1.52 : 1.02, -0.05, { type: 'restock', ch, stage });
   }
 }
-// 扉パネル (店員モードで開閉)
-for (const child of ms.doorContent.children) {
-  if (child.isMesh && child.geometry?.attributes?.position?.count > 100 && !child.userData.tap) {
-    // 扉のストリップ結合メッシュ
-    child.userData.tap = child.userData.tap ?? { type: 'door' };
-    break;
-  }
-}
+// 扉開閉
+ms.doorMesh.userData.tap = { type: 'door' };
 ms.doorHandle.userData.tap = { type: 'door' };
-// クレート
 ms.crate.traverse((o) => { if (o.isMesh) o.userData.tap = { type: 'crate' }; });
 
 function handleTap(tap) {
@@ -258,9 +235,9 @@ function handleTap(tap) {
         audio.beep();
       } else {
         audio.buzz();
-        const col = tap.i;
+        const col = SELECTIONS[tap.i].column;
         if (rack.soldOut(col)) ui.toast('うりきれ…');
-        else if (state.credit < PRICES[COLUMNS[col].product]) ui.toast('おかねが たりないよ');
+        else if (state.credit < state.selectionPrice(tap.i)) ui.toast('おかねが たりないよ');
         else if (state.phase !== 'idle') ui.toast('ちょっとまってね');
         else ui.toast('おつりが たりないみたい');
       }
@@ -271,13 +248,20 @@ function handleTap(tap) {
       audio.lever();
       ms.setLever(true);
       state.pullLever();
-      game.leverTimer = 1.0;
+      game.leverTimer = 1.1;
+      break;
+    }
+    case 'bill': {
+      if (game.operator) break;
+      ui.h.onInsert('bill');
       break;
     }
     case 'port': {
       const taken = state.takeProduct();
       if (taken.length > 0) {
         audio.take();
+        mv.manualFlap = 0.85;
+        setTimeout(() => { mv.manualFlap = 0; }, 700);
         const names = taken.map(b => b.userData.product.short).join('・');
         ui.toast(`つめた〜い ${names} ゲット!`);
         fx.puff((CABINET.portX[0] + CABINET.portX[1]) / 2, 0.45, 0.34, 10);
@@ -287,9 +271,11 @@ function handleTap(tap) {
     case 'cup': {
       const got = state.scoopCup();
       if (got.length > 0) {
+        ms.openCupLid(true);
+        game.cupLidTimer = 0.8;
         audio.jingle(got.length);
         const total = got.reduce((s, d) => s + d, 0);
-        ui.toast(`おつり ${total}円 かいしゅう!`);
+        ui.toast(`${total}円 かいしゅう!`);
         refreshWallet();
       }
       break;
@@ -299,15 +285,15 @@ function handleTap(tap) {
       toggleDoor(game.doorTarget === 0);
       break;
     }
-    case 'column': {
+    case 'restock': {
       if (!game.operator || !game.doorOpen) break;
-      const n = state.restock(tap.i);
-      if (n < 0) {
+      const res = state.restock(tap.ch, tap.stage);
+      if (!res) {
         audio.buzz();
-        ui.toast('このコラムは まんぱい!');
+        ui.toast('この室は まんぱいか トレーがふさがってるよ');
       } else {
         audio.take();
-        ui.toast(`${PRODUCTS[COLUMNS[tap.i].product].short} をほじゅう!`);
+        ui.toast(`${res.product.short} を トレーにほじゅう!`);
       }
       break;
     }
@@ -328,7 +314,7 @@ function handleTap(tap) {
       const got = state.collectCash();
       if (got && got.total > 0) {
         audio.jingle(8);
-        ui.toast(`うりあげ ${got.total}円 かいしゅう!`);
+        ui.toast(`うりあげ ${got.total}円 かいしゅう!\n(硬貨 + 千円札${got.bills}まい)`);
       } else {
         audio.buzz();
         ui.toast('金庫は からっぽ');
@@ -336,7 +322,7 @@ function handleTap(tap) {
       break;
     }
     case 'crate': {
-      ui.toast('ほじゅうしたいコラムを タップしてね');
+      ui.toast('ほじゅうしたい ラックをタップしてね');
       break;
     }
   }
@@ -370,8 +356,21 @@ mechListeners.push((t, d) => {
     audio.accept(d.denom);
   } else if (t === 'payoutCoin') {
     audio.eject();
+    ms.openCupLid(true);
+    game.cupLidTimer = 1.2;
   } else if (t === 'gate') {
     if (!d.returning) ms.setLever(false);
+  } else if (t === 'escrowCommit' || t === 'escrowReturn') {
+    audio.clunk(0.5);
+  } else if (t === 'billAccept') {
+    audio.accept(500);
+    ui.toast('1000円 うけつけ');
+  } else if (t === 'billReject') {
+    audio.billReject();
+  } else if (t === 'billRejected') {
+    audio.buzz();
+    ui.toast('お札が もどってきた…\n(おつりが たりないみたい)');
+    refreshWallet();
   }
 });
 
@@ -387,21 +386,27 @@ rackListeners.push((t, d) => {
     ui.toast('うりきれ が でたよ');
   } else if (t === 'vendRetry') {
     audio.motorStart();
+  } else if (t === 'trayIn') {
+    audio.clunk(0.3);
   }
 });
 
-/* 物理接触 → 効果音 */
 world.onContact = (info) => {
   if (game.mode === 'play') audio.contact(info);
 };
 
 function refreshLamps() {
-  for (let i = 0; i < COLUMNS.length; i++) ms.setLamp(i, state.lampState(i));
+  for (let i = 0; i < SELECTIONS.length; i++) ms.setLamp(i, state.lampState(i));
   ms.setShortage(state.changeShortage());
+  ms.setBillStop(state.billStop());
   refreshWallet();
 }
 function refreshWallet() {
-  ui.setWallet(state.wallet, (denom) => state.canInsert(denom) && !game.operator);
+  ui.setWallet(state.wallet, (denom) => {
+    if (game.operator) return false;
+    if (denom === 'bill') return state.wallet.bill > 0 && !state.billStop() && !mech.bill.busy;
+    return state.canInsert(denom);
+  });
 }
 
 /* ================= リサイズ & 品質 ================= */
@@ -442,17 +447,16 @@ function tuneQuality(dt) {
   }
 }
 
-/* ================= 初期在庫の事前シミュレーション ================= */
+/* ================= 初期在庫 (直接配置 + 短い settle) ================= */
 const startBtn = document.getElementById('start-btn');
 startBtn.disabled = true;
 startBtn.textContent = 'じゅんびちゅう…';
-rack.preload([6, 5, 5, 4, 4]);
+rack.preloadDirect(null);
 {
-  // タイトル画面の裏で少しずつ進める (合計 15 秒ぶん)
-  const totalSteps = Math.round(15 / PHYS.h);
+  const totalSteps = Math.round(3.0 / PHYS.h);
   let done = 0;
   const chunk = () => {
-    const n = Math.min(600, totalSteps - done);
+    const n = Math.min(400, totalSteps - done);
     for (let i = 0; i < n; i++) {
       mech.tick(PHYS.h);
       rack.tick(PHYS.h);
@@ -492,6 +496,7 @@ const debug = setupDebug({ world, mech, rack, state, ms, game, renderer });
 window.__vending = {
   world, mech, rack, state, game,
   insert: (d) => state.insert(d),
+  insertBill: () => state.insertBill(),
   press: (i) => state.pressButton(i),
 };
 window.__rig = cameraRig;
@@ -506,7 +511,6 @@ function loop(now) {
   if (dtReal > 0.1) dtReal = 0.1;
   game.time += dtReal;
 
-  // ---- 固定ステップ物理 ----
   const dtSim = dtReal * game.timeScale;
   if (game.settled) {
     accumulator += dtSim;
@@ -518,14 +522,13 @@ function loop(now) {
       accumulator -= PHYS.h;
       steps++;
     }
-    if (steps === PHYS.maxStepsPerFrame) accumulator = 0;   // スパイラル防止
+    if (steps === PHYS.maxStepsPerFrame) accumulator = 0;
   }
   const alpha = game.timeScale > 0 ? Math.min(1, accumulator / PHYS.h) : 1;
 
-  // ---- 扉アニメーション ----
+  // 扉
   {
-    const target = game.doorTarget;
-    const diff = target - game.doorAngle;
+    const diff = game.doorTarget - game.doorAngle;
     if (Math.abs(diff) > 0.001) {
       game.doorAngle += diff * Math.min(1, dtReal * (2.2 / TIMES.doorOpen));
       ms.setDoorAngle(game.doorAngle);
@@ -537,7 +540,7 @@ function loop(now) {
     }
   }
 
-  // ---- 返却レバーの自動戻し ----
+  // 返却レバー戻し
   if (game.leverTimer > 0) {
     game.leverTimer -= dtReal;
     if (game.leverTimer <= 0) {
@@ -545,8 +548,13 @@ function loop(now) {
       ms.setLever(false);
     }
   }
+  // つり銭口の蓋
+  if (game.cupLidTimer > 0) {
+    game.cupLidTimer -= dtReal;
+    if (game.cupLidTimer <= 0) ms.openCupLid(false);
+  }
 
-  // ---- LED表示 (credit / 払出し残額) ----
+  // LED (credit / 払出し残額)
   {
     let text;
     if (state.phase === 'change') {
@@ -562,12 +570,10 @@ function loop(now) {
     }
   }
 
-  // ---- 店員パネルの売上表示 ----
   if (game.operator) {
-    ui.setOpSales(`きょうの うりあげ: ${state.sales}円 / 金庫: ${mech.cashTotal()}円`);
+    ui.setOpSales(`きょうの うりあげ: ${state.sales}円 / 金庫: ${mech.cashTotal() + mech.bill.stacked * 1000}円`);
   }
 
-  // ---- ビジュアル更新 ----
   ms.update(dtReal, game.time);
   mv.update(dtSim, dtReal, alpha, camera);
   fx.update(dtSim);
