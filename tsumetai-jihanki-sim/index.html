@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#16202c">
+<title>つめた〜い じはんきシミュレーター</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥤</text></svg>">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/addons/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="game">
+  <canvas id="gl"></canvas>
+
+  <!-- ===== HUD ===== -->
+  <div id="hud" class="hidden">
+    <!-- モード切替 (左上) -->
+    <div id="mode-btns">
+      <button id="xray-btn" class="round-btn" aria-label="とうしモード">🩻</button>
+      <button id="op-btn" class="round-btn" aria-label="てんいんモード">🔧</button>
+      <button id="mute-btn" class="round-btn" aria-label="おと">🔊</button>
+    </div>
+
+    <!-- クレジット表示ミラー (右上) -->
+    <div id="credit-chip"><span id="credit-label">￥</span><span id="credit-val">0</span></div>
+
+    <!-- 時間操作 -->
+    <div id="time-ctrl">
+      <button data-scale="0" aria-label="いちじていし">⏸</button>
+      <button data-scale="1" class="active" aria-label="ふつう">▶</button>
+      <button data-scale="0.25" aria-label="スロー4ぶんの1">¼</button>
+      <button data-scale="0.1" aria-label="スロー10ぶんの1">⅒</button>
+    </div>
+
+    <!-- 財布 -->
+    <div id="wallet">
+      <div class="wallet-label">おさいふ <span id="wallet-total"></span></div>
+      <div id="wallet-coins">
+        <button class="coin-chip c10" data-denom="10"><span class="coin-face">10</span><span class="coin-count"></span></button>
+        <button class="coin-chip c50" data-denom="50"><span class="coin-face">50</span><span class="coin-count"></span></button>
+        <button class="coin-chip c100" data-denom="100"><span class="coin-face">100</span><span class="coin-count"></span></button>
+        <button class="coin-chip c500" data-denom="500"><span class="coin-face">500</span><span class="coin-count"></span></button>
+      </div>
+    </div>
+
+    <!-- 店員パネル -->
+    <div id="op-panel" class="hidden">
+      <div id="op-hint">とびらをタップしてあけてね</div>
+      <div id="op-sales"></div>
+    </div>
+
+    <div id="toast"></div>
+  </div>
+
+  <!-- ===== TITLE ===== -->
+  <div id="title-screen">
+    <div class="title-deco">
+      <div class="snow s1">❄</div><div class="snow s2">❄</div><div class="snow s3">❄</div>
+      <div class="snow s4">❄</div><div class="snow s5">❄</div>
+    </div>
+    <div id="logo">
+      <div id="logo-top">─ しくみまるみえ ─</div>
+      <div id="logo-main">つめた〜い<br>じはんきシミュレーター</div>
+    </div>
+    <button id="start-btn">▶ あそぶ</button>
+    <div id="howto">
+      <div class="howto-item"><span class="howto-icon">🪙</span>おさいふのコインをタップしていれる</div>
+      <div class="howto-item"><span class="howto-icon">🩻</span>とうしモードでなかのしくみをのぞく</div>
+      <div class="howto-item"><span class="howto-icon">⅒</span>スローでコインのゆくえをかんさつ</div>
+      <div class="howto-item"><span class="howto-icon">🔧</span>てんいんモードでほじゅうもできる</div>
+    </div>
+  </div>
+
+  <!-- デバッグ -->
+  <div id="debug-overlay" class="hidden"></div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

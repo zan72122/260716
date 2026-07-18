@@ -5,3 +5,4 @@
 - [color-magnet-sand-garden](./color-magnet-sand-garden/) — カラーじしゃく すなもよう庭(磁石で色砂の模様を描くあそび)
 - [kirakira-party-island](./kirakira-party-island/) — きらきら☆パーティーアイランド(3Dすごろく+ミニゲームのパーティーゲーム)
 - [sky-air-rider](./sky-air-rider/) — そらのエアライダー(星のマシンで空の島をかけまわる 3D エアライドレース風)
+- [tsumetai-jihanki-sim](./tsumetai-jihanki-sim/) — つめた〜い じはんきシミュレーター(自動販売機のなかみを物理でまるごと再現した 3D 観察ゲーム)
