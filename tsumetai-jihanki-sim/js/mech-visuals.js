@@ -1,23 +1,21 @@
 /* ============================================================
-   mech-visuals.js — 機構の3D表示と物理の同期
-   ・コインメック: 物理コライダ (world.segs) から板を自動生成
-     → 見た目と物理が絶対に乖離しない
-   ・硬貨: 金種別 InstancedMesh (補間つき)
-   ・釣銭チューブの計数スタック / 金庫の硬貨山 / 落下トランジェント
-   ・ラック棚 / ベンドピン / 商品メッシュ
+   mech-visuals.js — 機構の3D表示と物理の同期 (実機準拠版)
+   ・静的機構 (レール/チャンネル/棚/トレー) は物理コライダから
+     自動生成して結合 → 見た目と物理が乖離しない & 低ドローコール
+   ・硬貨/商品は InstancedMesh (補間つき)
+   ・エスクローシャッター / 紙幣搬送 / ベンドピン30組 / 釣銭スタック
    ============================================================ */
 import * as THREE from 'three';
-import { segPlate, canvasTexture, makeRng, clamp, lerp, easeInOut } from './lib3d.js';
-import { buildProductMesh } from './machine-scene.js';
+import { segPlate, canvasTexture, makeRng, lerp, easeInOut, mat4, mergeGeoms } from './lib3d.js';
+import { buildProductGeometry, productAtlasMat } from './machine-scene.js';
 import {
   COINS, DENOMS, CABINET, MECH, TUBES, TUBE_TOP, TUBE_BOTTOM, TUBE_CAP,
-  COLUMNS, RACK,
+  COLUMNS, CHAMBERS, PRODUCTS, BILL, ESCROW_DENOMS,
 } from './config.js';
-import { LAYER_MECH, LAYER_MECH_BACK } from './coin-mech.js';
+import { LAYER_MECH, LAYER_MECH_BACK, LAYER_ESCROW_RET } from './coin-mech.js';
 
 const COIN_SEG = 22;
 
-/* 硬貨の面テクスチャ */
 function coinFaceTex(denom) {
   const spec = COINS[denom];
   return canvasTexture(128, 128, (ctx, w, h) => {
@@ -43,6 +41,34 @@ function coinFaceTex(denom) {
   });
 }
 
+/* 結露の水滴テクスチャは fx.js のものを使う (循環依存回避のため遅延) */
+let dropletMat = null;
+function getDropletMat() {
+  if (!dropletMat) {
+    const tex = canvasTexture(256, 256, (ctx, w, h) => {
+      ctx.clearRect(0, 0, w, h);
+      const rng = makeRng(5);
+      for (let i = 0; i < 220; i++) {
+        const x = rng() * w, y = rng() * h;
+        const r = 0.8 + rng() * rng() * 4.5;
+        const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+        g.addColorStop(0, 'rgba(255,255,255,0.95)');
+        g.addColorStop(0.6, 'rgba(220,240,255,0.5)');
+        g.addColorStop(1, 'rgba(200,230,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    dropletMat = new THREE.MeshStandardMaterial({
+      color: 0xeaf6ff, transparent: true, opacity: 0.5, alphaMap: tex,
+      roughness: 0.12, metalness: 0.0, depthWrite: false, side: THREE.DoubleSide,
+    });
+  }
+  return dropletMat;
+}
+
 export class MechVisuals {
   constructor(machineScene, world, mech, rack) {
     this.ms = machineScene;
@@ -50,64 +76,79 @@ export class MechVisuals {
     this.mech = mech;
     this.rack = rack;
     this.rng = makeRng(31);
-    this.products = new Map();       // body.id → {grp, xFrom, xTo, xT, tweening}
-    this.flyouts = [];               // 取出しアニメーション
-    this.transients = [];            // チューブ落下コイン
-    this.sensorBlink = {};           // denom → 残り時間
-    this.flipperT = {};              // denom → 0..1
-    this.ejectorT = {};              // denom → アニメ残り
+    this.portTweens = new Map();     // body.id → {xT}
+    this.flyouts = [];
+    this.sensorBlink = {};
+    this.ejectorT = {};
     this._buildCoinInstances();
+    this._buildProductInstances();
     this._buildMechUnit();
     this._buildRackVisuals();
+    this._buildBill();
   }
 
-  /* ============ 硬貨インスタンス ============ */
+  /* ============ 硬貨 ============ */
   _buildCoinInstances() {
     this.coinMeshes = {};
+    this.stackMeshes = {};
+    this.cashMeshes = {};
     const d = this.ms.doorContent;
     for (const denom of DENOMS) {
       const spec = COINS[denom];
       const geom = new THREE.CylinderGeometry(spec.d / 2, spec.d / 2, spec.thick, COIN_SEG);
-      geom.rotateX(Math.PI / 2);   // 軸をZへ (メック面に立てる)
+      geom.rotateX(Math.PI / 2);
       const face = coinFaceTex(denom);
       const side = new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.32, metalness: 0.88 });
-      const faceMat = new THREE.MeshStandardMaterial({
-        map: face, color: 0xffffff, roughness: 0.28, metalness: 0.85,
-      });
-      const cap = 40;
-      const im = new THREE.InstancedMesh(geom, [side, faceMat, faceMat], cap);
+      const faceMat = new THREE.MeshStandardMaterial({ map: face, roughness: 0.28, metalness: 0.85 });
+      const im = new THREE.InstancedMesh(geom, [side, faceMat, faceMat], 40);
       im.count = 0;
       im.frustumCulled = false;
       d.add(im);
       this.coinMeshes[denom] = im;
 
-      // チューブ内スタック (寝かせた硬貨)
       const flatGeom = new THREE.CylinderGeometry(spec.d / 2, spec.d / 2, spec.thick, COIN_SEG);
       const stack = new THREE.InstancedMesh(flatGeom, [side, faceMat, faceMat], TUBE_CAP[denom]);
       stack.count = 0;
       stack.frustumCulled = false;
       d.add(stack);
-      if (!this.stackMeshes) this.stackMeshes = {};
       this.stackMeshes[denom] = stack;
-    }
-    // 金庫の硬貨山 (混在なので金種別に4つ)
-    this.cashMeshes = {};
-    for (const denom of DENOMS) {
-      const spec = COINS[denom];
-      const geom = new THREE.CylinderGeometry(spec.d / 2, spec.d / 2, spec.thick, 14);
-      const im = new THREE.InstancedMesh(
-        geom,
+
+      const cash = new THREE.InstancedMesh(
+        new THREE.CylinderGeometry(spec.d / 2, spec.d / 2, spec.thick, 14),
         new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.4, metalness: 0.8 }),
         60
       );
-      im.count = 0;
-      im.frustumCulled = false;
-      this.ms.doorContent.add(im);
-      this.cashMeshes[denom] = im;
+      cash.count = 0;
+      cash.frustumCulled = false;
+      d.add(cash);
+      this.cashMeshes[denom] = cash;
     }
   }
 
-  /* ============ コインメックの部品 ============ */
+  /* ============ 商品 (種別 InstancedMesh) ============ */
+  _buildProductInstances() {
+    this.productMeshes = [];
+    const cap = 40;
+    for (const p of PRODUCTS) {
+      const geom = buildProductGeometry(p).clone();
+      geom.rotateZ(Math.PI / 2);   // 軸をXへ (横倒し)
+      const im = new THREE.InstancedMesh(geom, productAtlasMat(), cap);
+      im.count = 0;
+      im.frustumCulled = false;
+      im.castShadow = true;
+      this.ms.cabinet.add(im);
+      // 結露シェル
+      const shellGeom = new THREE.CylinderGeometry(p.r * 1.017, p.r * 1.017, p.len * 0.72, 16, 1, true);
+      shellGeom.rotateZ(Math.PI / 2);
+      const shell = new THREE.InstancedMesh(shellGeom, getDropletMat(), cap);
+      shell.count = 0;
+      shell.frustumCulled = false;
+      this.ms.cabinet.add(shell);
+      this.productMeshes.push({ im, shell });
+    }
+  }
+
+  /* ============ コインメック部品 ============ */
   _buildMechUnit() {
     const d = this.ms.doorContent;
     const Z = CABINET.mechZ, ZB = CABINET.mechBackZ;
@@ -115,58 +156,61 @@ export class MechVisuals {
     d.add(grp);
     this.mechGroup = grp;
 
-    // 背面プレート (選別スロットの溝が見える)
-    const plateTex = canvasTexture(512, 512, (ctx, w, h) => {
-      ctx.fillStyle = '#5a6167';
+    // メック筐体 (緑の樹脂ケース風 — 実機コインメックのイメージ)
+    const caseTex = canvasTexture(256, 256, (ctx, w, h) => {
+      ctx.fillStyle = '#3f6a4a';
       ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = '#454b51';
-      for (let i = 0; i < 6; i++) ctx.fillRect(20 + i * 84, 30, 4, h - 60);
-      ctx.fillStyle = 'rgba(20,22,26,0.55)';
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      for (let i = 0; i < 5; i++) ctx.fillRect(16 + i * 48, 16, 5, h - 32);
     });
-    const back = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.44, 0.62),
-      new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.5, metalness: 0.55 })
+    const mechBack = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.26, 0.80),
+      new THREE.MeshStandardMaterial({ map: caseTex, roughness: 0.55, metalness: 0.2 })
     );
-    back.position.set(0.24, 0.79, Z - 0.017);
-    grp.add(back);
+    mechBack.position.set(0.455, 0.94, Z - 0.018);
+    grp.add(mechBack);
 
-    // ---- 物理コライダから板を生成 ----
-    const matSteel = new THREE.MeshStandardMaterial({ color: 0xc4ccd3, roughness: 0.3, metalness: 0.8 });
-    const matRail = new THREE.MeshStandardMaterial({ color: 0xd8b04a, roughness: 0.35, metalness: 0.75 });
-    const matChannel = new THREE.MeshStandardMaterial({ color: 0x9aa4ad, roughness: 0.4, metalness: 0.6 });
+    // ---- 静的コライダ → 板を結合 (メック/金庫/エスクロー返却の3層) ----
+    const plates = [];
     for (const s of this.world.segs) {
+      let z, color, thick = 0.005, depth = 0.03;
       if (s.layer === LAYER_MECH) {
-        if (s.material === 'plastic' || s.material === 'gate') continue; // カップ/ゲートは別途
-        if (s.tag && s.tag.startsWith('catch-')) continue;              // 捕捉ガイドは背面プレートの溝
+        if (s.material === 'plastic' || s.material === 'gate' || s.material === 'shutter') continue;
+        if (s.tag && s.tag.startsWith('catch-')) continue;
         const isBridge = s.tag && s.tag.startsWith('bridge-');
-        const geom = segPlate([s.ax, s.ay], [s.bx, s.by], isBridge ? 0.0035 : 0.005, isBridge ? 0.008 : 0.03, 'xy');
-        const mesh = new THREE.Mesh(geom, isBridge ? matChannel : (s.material === 'rail' ? matRail : matSteel));
-        mesh.position.z = isBridge ? Z - 0.012 : Z;
-        grp.add(mesh);
+        z = isBridge ? Z - 0.012 : Z;
+        color = s.material === 'rail' ? 0xd8b04a : 0xc4ccd3;
+        if (isBridge) { color = 0x9aa4ad; thick = 0.0035; depth = 0.008; }
       } else if (s.layer === LAYER_MECH_BACK) {
-        const geom = segPlate([s.ax, s.ay], [s.bx, s.by], 0.005, 0.028, 'xy');
-        const mesh = new THREE.Mesh(geom, matSteel);
-        mesh.position.z = ZB;
-        grp.add(mesh);
-      }
+        z = ZB; color = 0x8a939b;
+      } else if (s.layer === LAYER_ESCROW_RET) {
+        z = Z + 0.022; color = 0xb8c860; thick = 0.004; depth = 0.02;
+      } else continue;
+      const g = segPlate([s.ax, s.ay], [s.bx, s.by], thick, depth, 'xy');
+      g.applyMatrix4(mat4(0, 0, z));
+      plates.push({ geom: g, color });
     }
+    const platesMesh = new THREE.Mesh(
+      mergeGeoms(plates),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.7 })
+    );
+    grp.add(platesMesh);
 
-    // ---- 返却ゲート (アニメーション) ----
-    this.gateMesh = new THREE.Mesh(
+    // ---- 返却ゲート ----
+    this.gatePivotGrp = new THREE.Group();
+    this.gatePivotGrp.position.set(MECH.returnGate.pivot[0], MECH.returnGate.pivot[1], Z);
+    const gateMesh = new THREE.Mesh(
       new THREE.BoxGeometry(MECH.returnGate.len, 0.006, 0.03),
       new THREE.MeshStandardMaterial({ color: 0xcc4444, roughness: 0.35, metalness: 0.6 })
     );
-    this.gatePivotGrp = new THREE.Group();
-    this.gatePivotGrp.position.set(MECH.returnGate.pivot[0], MECH.returnGate.pivot[1], Z);
-    this.gateMesh.position.x = -MECH.returnGate.len / 2;
-    const gateInner = new THREE.Group();
-    gateInner.add(this.gateMesh);
-    this.gatePivotGrp.add(gateInner);
-    this.gateInner = gateInner;
+    gateMesh.position.x = -MECH.returnGate.len / 2;
+    this.gatePivotGrp.add(gateMesh);
     grp.add(this.gatePivotGrp);
 
-    // ---- 検銭センサーコイル ----
+    // ---- 検銭センサーコイル & エスクローシャッター & エジェクタ ----
     this.sensorMats = {};
+    this.shutterMeshes = {};
+    this.ejectors = {};
     for (const denom of DENOMS) {
       const ch = this.mech.channels[denom];
       const mat = new THREE.MeshStandardMaterial({
@@ -176,24 +220,26 @@ export class MechVisuals {
       ring.position.set(ch.cx, MECH.sensorY, Z);
       grp.add(ring);
       this.sensorMats[denom] = mat;
-    }
 
-    // ---- 振分フリッパー ----
-    this.flipperGrps = {};
-    for (const denom of DENOMS) {
-      const ch = this.mech.channels[denom];
-      const fg = new THREE.Group();
-      fg.position.set(ch.cx - ch.half, MECH.flipperY, Z);
-      const plate = new THREE.Mesh(
-        new THREE.BoxGeometry(ch.half * 2, 0.005, 0.026),
-        new THREE.MeshStandardMaterial({ color: 0x3f8fd0, roughness: 0.4, metalness: 0.5 })
+      if (ESCROW_DENOMS.includes(denom)) {
+        const sh = new THREE.Mesh(
+          new THREE.BoxGeometry(ch.half * 2, 0.006, 0.03),
+          new THREE.MeshStandardMaterial({ color: 0xd08030, roughness: 0.4, metalness: 0.5 })
+        );
+        sh.position.set(ch.cx, MECH.escrowY, Z);
+        grp.add(sh);
+        this.shutterMeshes[denom] = { mesh: sh, cx: ch.cx, t: 1 };
+      }
+
+      const spec = COINS[denom];
+      const ej = new THREE.Mesh(
+        new THREE.BoxGeometry(spec.d + 0.006, 0.012, 0.028),
+        new THREE.MeshStandardMaterial({ color: 0x37474f, roughness: 0.45, metalness: 0.5 })
       );
-      plate.position.x = ch.half;
-      fg.add(plate);
-      fg.rotation.z = -1.35;   // 通常はチャンネルに沿って垂れている
-      grp.add(fg);
-      this.flipperGrps[denom] = fg;
-      this.flipperT[denom] = 0;
+      ej.position.set(TUBES[denom].cx, TUBE_BOTTOM - 0.012, Z);
+      grp.add(ej);
+      this.ejectors[denom] = ej;
+      this.ejectorT[denom] = 0;
     }
 
     // ---- 釣銭チューブ ----
@@ -209,151 +255,184 @@ export class MechVisuals {
         tubeMat
       );
       tube.position.set(cx, (TUBE_TOP + TUBE_BOTTOM) / 2, Z);
+      tube.userData.tap = { type: 'tube', denom };
       grp.add(tube);
-      // 口の金具
       const mouth = new THREE.Mesh(
         new THREE.CylinderGeometry(spec.d / 2 + 0.007, spec.d / 2 + 0.005, 0.018, 18, 1, true),
         new THREE.MeshStandardMaterial({ color: 0x8a939b, roughness: 0.35, metalness: 0.75 })
       );
       mouth.position.set(cx, TUBE_TOP + 0.008, Z);
       grp.add(mouth);
-      // エジェクタ
-      const ej = new THREE.Mesh(
-        new THREE.BoxGeometry(spec.d + 0.006, 0.012, 0.028),
-        new THREE.MeshStandardMaterial({ color: 0x37474f, roughness: 0.45, metalness: 0.5 })
-      );
-      ej.position.set(cx, TUBE_BOTTOM - 0.012, Z);
-      grp.add(ej);
-      if (!this.ejectors) this.ejectors = {};
-      this.ejectors[denom] = ej;
-      this.ejectorT[denom] = 0;
     }
 
     // ---- 金庫 ----
     const cb = MECH.cashBox;
-    const cashMat = new THREE.MeshStandardMaterial({
-      color: 0x2a3138, roughness: 0.5, metalness: 0.45,
-      transparent: true, opacity: 0.85,
-    });
     const cash = new THREE.Mesh(
       new THREE.BoxGeometry(cb.x1 - cb.x0, cb.y1 - cb.y0, 0.1),
-      cashMat
+      new THREE.MeshStandardMaterial({
+        color: 0x2a3138, roughness: 0.5, metalness: 0.45, transparent: true, opacity: 0.85,
+      })
     );
-    cash.position.set((cb.x0 + cb.x1) / 2, (cb.y0 + cb.y1) / 2, 0.25);
+    cash.position.set((cb.x0 + cb.x1) / 2, (cb.y0 + cb.y1) / 2, 0.20);
+    cash.userData.tap = { type: 'cash' };
     grp.add(cash);
     this.cashBoxMesh = cash;
     const cashLabel = canvasTexture(128, 64, (ctx, w, h) => {
       ctx.fillStyle = '#1a2026';
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = '#d0d8e0';
-      ctx.font = '900 30px sans-serif';
+      ctx.font = '900 26px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('コイン金庫', w / 2, h / 2);
     });
     const cl = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.14, 0.07),
+      new THREE.PlaneGeometry(0.12, 0.06),
       new THREE.MeshStandardMaterial({ map: cashLabel, roughness: 0.5 })
     );
-    cl.position.set((cb.x0 + cb.x1) / 2, (cb.y0 + cb.y1) / 2, 0.301);
+    cl.position.set((cb.x0 + cb.x1) / 2, (cb.y0 + cb.y1) / 2, 0.253);
     grp.add(cl);
-
-    // ---- メックの筐体フレーム ----
-    const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(0.46, 0.66, 0.005),
-      new THREE.MeshStandardMaterial({ color: 0x757e86, roughness: 0.4, metalness: 0.7 })
-    );
-    frame.position.set(0.24, 0.79, 0.302);
-    frame.visible = false;   // 扉裏から見た蓋 (開扉時のみ意味がある) — 簡略化のため非表示
-    grp.add(frame);
   }
 
-  /* ============ ラックの棚・ピン ============ */
+  /* ============ 紙幣 (搬送ビジュアル + スタッカー) ============ */
+  _buildBill() {
+    const d = this.ms.doorContent;
+    const billTex = canvasTexture(256, 128, (ctx, w, h) => {
+      ctx.fillStyle = '#dfe8dc';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#7a94b8';
+      ctx.fillRect(10, 10, w - 20, h - 20);
+      ctx.fillStyle = '#dfe8dc';
+      ctx.beginPath();
+      ctx.arc(w * 0.68, h / 2, 34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#31405a';
+      ctx.font = '900 40px serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('千', w * 0.68, h / 2 + 2);
+      ctx.font = '700 22px serif';
+      ctx.fillText('1000', w * 0.25, h / 2);
+    });
+    this.billMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(BILL.size[1], BILL.size[0]),   // 縦向きで挿入
+      new THREE.MeshStandardMaterial({ map: billTex, roughness: 0.7, side: THREE.DoubleSide })
+    );
+    this.billMesh.rotation.x = -Math.PI / 2 + 0.15;
+    this.billMesh.visible = false;
+    d.add(this.billMesh);
+    // スタッカー (X線で見える札束)
+    const st = BILL.stacker;
+    const stackerBox = new THREE.Mesh(
+      new THREE.BoxGeometry(st.x1 - st.x0, st.y1 - st.y0, 0.06),
+      new THREE.MeshStandardMaterial({
+        color: 0x24303a, roughness: 0.5, metalness: 0.4, transparent: true, opacity: 0.85,
+      })
+    );
+    stackerBox.position.set((st.x0 + st.x1) / 2, (st.y0 + st.y1) / 2, st.z);
+    d.add(stackerBox);
+    this.billStackMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(BILL.size[0] * 0.8, 0.0012, BILL.size[1] * 0.8),
+      new THREE.MeshStandardMaterial({ color: 0xaebfd4, roughness: 0.7 }),
+      40
+    );
+    this.billStackMesh.count = 0;
+    this.billStackMesh.frustumCulled = false;
+    d.add(this.billStackMesh);
+  }
+
+  /* ============ ラック (静的部分は室ごとに結合) ============ */
   _buildRackVisuals() {
-    const g = new THREE.Group();
-    this.ms.cabinet.add(g);
-    const bounds = this.ms.columnBounds;
-    const shelfMat = new THREE.MeshStandardMaterial({ color: 0xaeb8c0, roughness: 0.42, metalness: 0.6 });
-    const shelfMat2 = new THREE.MeshStandardMaterial({ color: 0x99a3ab, roughness: 0.42, metalness: 0.6 });
-    this.pinMeshes = [];
+    const bounds = this.ms.chamberBounds;
+    this.pinData = [];
+    const chamberGeoms = [[], [], []];
     for (const col of this.rack.cols) {
-      const width = bounds[col.index + 1] - bounds[col.index] - 0.014;
-      const cx = COLUMNS[col.index].x;
-      for (const s of col.shelves) {
-        const geom = segPlate(s.a, s.b, 0.006, width, 'zy');
-        const mesh = new THREE.Mesh(geom, col.index % 2 ? shelfMat2 : shelfMat);
-        mesh.position.x = cx;
-        g.add(mesh);
+      const ch = col.conf.chamber;
+      const width = bounds[ch + 1] - bounds[ch] - 0.03;
+      for (const s of this.world.segs) {
+        if (s.layer !== col.layer) continue;
+        if (s.material === 'pin') continue;
+        // 落下ガイドは薄く細く
+        const isLane = s.tag == null && Math.abs(s.ax - s.bx) < 0.001 && s.ay > s.by;
+        chamberGeoms[ch].push({
+          geom: segPlate([s.ax, s.ay], [s.bx, s.by], 0.004, isLane ? 0.02 : width, 'zy')
+            .applyMatrix4(mat4(COLUMNS[col.index].x, 0, 0)),
+          color: col.conf.stage === 0 ? 0xaeb8c0 : 0x9aa3ab,
+        });
       }
-      // ベンドピン (右側のソレノイドハウジングから出入りする)
-      const mkPin = (seg) => {
-        const grp = new THREE.Group();
-        const pin = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.009, 0.009, width * 0.62, 10),
-          new THREE.MeshStandardMaterial({ color: 0xd8352f, roughness: 0.3, metalness: 0.6 })
-        );
-        pin.rotation.z = Math.PI / 2;
-        grp.add(pin);
-        grp.position.set(cx, (seg.ay + seg.by) / 2, seg.ax);
-        g.add(grp);
-        // ハウジング (仕切り壁に固定)
-        const housing = new THREE.Mesh(
-          new THREE.BoxGeometry(0.05, 0.032, 0.05),
-          new THREE.MeshStandardMaterial({ color: 0x37424c, roughness: 0.45, metalness: 0.5 })
-        );
-        housing.position.set(cx + width * 0.42, (seg.ay + seg.by) / 2, seg.ax);
-        g.add(housing);
-        return grp;
-      };
-      this.pinMeshes.push({
-        col: col.index,
-        lower: mkPin(col.pinLower),
-        upper: mkPin(col.pinUpper),
-        lowerT: 1, upperT: 0,
+      // ベンドピン (動的)
+      this.pinData.push({
+        col,
+        cx: COLUMNS[col.index].x,
         width,
-        cx,
+        lowerT: 1, upperT: 0,
       });
     }
+    // トレー
+    for (const s of this.world.segs) {
+      if (!s.layer.startsWith('tray')) continue;
+      if (s.filter) continue;   // ゴーストブリッジは描かない (開口として見せる)
+      const ch = Number(s.layer[4]);
+      const width = bounds[ch + 1] - bounds[ch] - 0.03;
+      chamberGeoms[ch].push({
+        geom: segPlate([s.ax, s.ay], [s.bx, s.by], 0.004, width, 'zy')
+          .applyMatrix4(mat4(CHAMBERS[ch].x, 0, 0)),
+        color: 0xc2cad1,
+      });
+    }
+    const rackMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 });
+    for (let ch = 0; ch < 3; ch++) {
+      if (chamberGeoms[ch].length === 0) continue;
+      const mesh = new THREE.Mesh(mergeGeoms(chamberGeoms[ch]), rackMat);
+      this.ms.cabinet.add(mesh);
+    }
+    // ピン (60本 instanced)
+    this.pinMesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.008, 0.008, 1, 8).applyMatrix4(mat4(0, 0, 0, 0, 0, Math.PI / 2)),
+      new THREE.MeshStandardMaterial({ color: 0xd8352f, roughness: 0.3, metalness: 0.6 }),
+      60
+    );
+    this.pinMesh.frustumCulled = false;
+    this.ms.cabinet.add(this.pinMesh);
   }
 
   /* ============ イベント ============ */
   onMechEvent(type, data) {
     if (type === 'accept') {
       this.sensorBlink[data.denom] = 0.5;
-    } else if (type === 'tubeIn') {
-      // チューブへ落ちるトランジェント (立ち→寝かせ)
-      this.transients.push({ denom: data.denom, t: 0, dur: 0.20 });
     } else if (type === 'payoutCoin') {
       this.ejectorT[data.denom] = 0.22;
-    } else if (type === 'divert') {
-      this.flipperT[data.denom] = 1.2;
     }
   }
 
   onRackEvent(type, data) {
-    if (type === 'productSpawn') {
-      const p = data.body.userData.product;
-      const inner = buildProductMesh(p);
-      inner.rotation.z = Math.PI / 2;   // 軸をXへ (横倒し)
-      const grp = new THREE.Group();
-      grp.add(inner);
-      this.ms.cabinet.add(grp);
-      this.products.set(data.body.id, {
-        grp, body: data.body,
-        xFrom: COLUMNS[data.col].x,
-        xTo: COLUMNS[data.col].portX,
-        xT: 0, tweening: false,
-        zJit: (this.rng() - 0.5) * 0.006,
-      });
-    } else if (type === 'productExit') {
-      const e = this.products.get(data.body.id);
-      if (e) e.tweening = true;
+    if (type === 'productExit') {
+      this.portTweens.set(data.body.id, { xT: 0 });
     } else if (type === 'productRemove') {
-      const e = this.products.get(data.body.id);
-      if (e) {
-        this.products.delete(data.body.id);
-        this.flyouts.push({ grp: e.grp, t: 0 });
-      }
+      const b = data.body;
+      const p = b.userData.product;
+      // 取出しフライアウト (一時メッシュ)
+      const mesh = new THREE.Mesh(buildProductGeometry(p), productAtlasMat());
+      mesh.rotation.z = Math.PI / 2;
+      const grp = new THREE.Group();
+      grp.add(mesh);
+      grp.position.set(this._renderX(b), b.y, b.x);
+      grp.rotation.x = b.angle;
+      this.ms.cabinet.add(grp);
+      this.flyouts.push({ grp, t: 0 });
+      this.portTweens.delete(b.id);
     }
+  }
+
+  _renderX(b) {
+    const colIdx = b.userData.col;
+    if (colIdx == null || colIdx < 0) {
+      // トレー上: レイヤー名から室を割り出す
+      const m = /^tray(\d)/.exec(b.layer);
+      return m ? CHAMBERS[Number(m[1])].x : 0;
+    }
+    const conf = COLUMNS[colIdx];
+    const tw = this.portTweens.get(b.id);
+    if (!tw) return conf.x;
+    return lerp(conf.x, conf.portX, easeInOut(tw.xT));
   }
 
   /* ============ 毎フレーム同期 ============ */
@@ -364,7 +443,8 @@ export class MechVisuals {
     this._syncProducts(dtSim, alpha);
     this._syncMechParts(dtSim, dtReal);
     this._syncPins(dtReal);
-    this._syncFlap(alpha);
+    this._syncFlaps(alpha);
+    this._syncBill();
     this._flyouts(dtReal, camera);
   }
 
@@ -381,11 +461,12 @@ export class MechVisuals {
       const denom = b.userData.denom;
       const im = this.coinMeshes[denom];
       const i = counts[denom]++;
-      if (i >= im.instanceMatrix.count) continue;
+      if (i >= 40) continue;
       const x = b.px + (b.x - b.px) * alpha;
       const y = b.py + (b.y - b.py) * alpha;
       const ang = b.pangle + (b.angle - b.pangle) * alpha;
-      const z = b.layer === LAYER_MECH_BACK ? CABINET.mechBackZ : CABINET.mechZ;
+      const z = b.layer === LAYER_MECH_BACK ? CABINET.mechBackZ
+        : b.layer === LAYER_ESCROW_RET ? CABINET.mechZ + 0.022 : CABINET.mechZ;
       pos.set(x, y, z);
       quat.setFromAxisAngle(zAxis, ang);
       mat.compose(pos, quat, one);
@@ -393,7 +474,7 @@ export class MechVisuals {
     }
     for (const denom of DENOMS) {
       const im = this.coinMeshes[denom];
-      if (im.count !== counts[denom]) im.count = counts[denom];
+      im.count = counts[denom];
       im.instanceMatrix.needsUpdate = true;
     }
   }
@@ -423,7 +504,7 @@ export class MechVisuals {
       const n = Math.min(this.mech.cashBox[denom], 60);
       for (let i = 0; i < n; i++) {
         const x = cb.x0 + 0.03 + rng() * (cb.x1 - cb.x0 - 0.06);
-        const z = 0.215 + rng() * 0.06;
+        const z = 0.165 + rng() * 0.06;
         const layer = Math.floor(i / 8);
         const e = new THREE.Euler(rng() * 0.3 - 0.15, rng() * Math.PI, rng() * 0.3 - 0.15);
         mat.makeRotationFromEuler(e);
@@ -436,24 +517,41 @@ export class MechVisuals {
   }
 
   _syncProducts(dtSim, alpha) {
-    for (const e of this.products.values()) {
-      const b = e.body;
-      if (e.tweening && e.xT < 1) {
-        e.xT = Math.min(1, e.xT + dtSim / 0.85);
-      }
-      const x = lerp(e.xFrom, e.xTo, easeInOut(e.xT)) + e.zJit;
+    for (const tw of this.portTweens.values()) {
+      if (tw.xT < 1) tw.xT = Math.min(1, tw.xT + dtSim / 0.8);
+    }
+    const counts = new Array(PRODUCTS.length).fill(0);
+    const mat = new THREE.Matrix4();
+    const quat = new THREE.Quaternion();
+    const xAxis = new THREE.Vector3(1, 0, 0);
+    const pos = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
+    for (const b of this.world.bodies) {
+      if (b.userData.kind !== 'product') continue;
+      const pi = b.userData.product.atlas;
+      const entry = this.productMeshes[pi];
+      const i = counts[pi]++;
+      if (i >= 40) continue;
       const y = b.py + (b.y - b.py) * alpha;
-      const z = b.px + (b.x - b.px) * alpha;   // 物理u=ワールドz
+      const z = b.px + (b.x - b.px) * alpha;
       const ang = b.pangle + (b.angle - b.pangle) * alpha;
-      e.grp.position.set(x, y, z);
-      e.grp.rotation.x = ang;
+      pos.set(this._renderX(b), y, z);
+      quat.setFromAxisAngle(xAxis, ang);
+      mat.compose(pos, quat, one);
+      entry.im.setMatrixAt(i, mat);
+      entry.shell.setMatrixAt(i, mat);
+    }
+    for (let pi = 0; pi < PRODUCTS.length; pi++) {
+      const e = this.productMeshes[pi];
+      e.im.count = counts[pi];
+      e.shell.count = counts[pi];
+      e.im.instanceMatrix.needsUpdate = true;
+      e.shell.instanceMatrix.needsUpdate = true;
     }
   }
 
   _syncMechParts(dtSim, dtReal) {
-    // 返却ゲート角 (メッシュは -x 方向 = 角度π で作ってある)
     this.gatePivotGrp.rotation.z = this.mech.gateAngle - Math.PI;
-    // センサー点滅
     for (const denom of DENOMS) {
       if (this.sensorBlink[denom] > 0) {
         this.sensorBlink[denom] -= dtReal;
@@ -461,12 +559,6 @@ export class MechVisuals {
       } else {
         this.sensorMats[denom].emissiveIntensity = 0.15;
       }
-      // フリッパー
-      const target = this.flipperT[denom] > 0 ? -0.35 : -1.35;
-      const fg = this.flipperGrps[denom];
-      fg.rotation.z += (target - fg.rotation.z) * Math.min(1, dtReal * 14);
-      if (this.flipperT[denom] > 0) this.flipperT[denom] -= dtSim;
-      // エジェクタ
       const ej = this.ejectors[denom];
       if (this.ejectorT[denom] > 0) {
         this.ejectorT[denom] -= dtSim;
@@ -476,43 +568,93 @@ export class MechVisuals {
         ej.position.x = TUBES[denom].cx;
       }
     }
-    // チューブ落下トランジェント
-    for (const tr of this.transients) tr.t += dtSim;
-    this.transients = this.transients.filter(tr => tr.t < tr.dur);
+    // エスクローシャッター (enabled 状態に追従してスライド)
+    for (const denom of ESCROW_DENOMS) {
+      const sm = this.shutterMeshes[denom];
+      const ch = this.mech.channels[denom];
+      const target = ch.shutter?.enabled ? 1 : 0;
+      sm.t += (target - sm.t) * Math.min(1, dtReal * 16);
+      sm.mesh.position.x = sm.cx + (1 - sm.t) * (ch.half * 2 + 0.008);
+      sm.mesh.scale.x = 0.15 + 0.85 * sm.t;
+    }
   }
 
   _syncPins(dtReal) {
-    for (const pm of this.pinMeshes) {
-      const col = this.rack.cols[pm.col];
-      const lTarget = col.pinLower.enabled ? 1 : 0;
-      const uTarget = col.pinUpper.enabled ? 1 : 0;
-      pm.lowerT += (lTarget - pm.lowerT) * Math.min(1, dtReal * 16);
-      pm.upperT += (uTarget - pm.upperT) * Math.min(1, dtReal * 16);
-      // ソレノイドハウジングへ引き込まれる (スライド + 縮み)
-      const apply = (grp, t) => {
-        grp.position.x = pm.cx + (1 - t) * pm.width * 0.42;
-        grp.scale.x = 0.12 + 0.88 * t;
+    const mat = new THREE.Matrix4();
+    let idx = 0;
+    for (const pd of this.pinData) {
+      const col = pd.col;
+      const lT = col.pinLower.enabled ? 1 : 0;
+      const uT = col.pinUpper.enabled ? 1 : 0;
+      pd.lowerT += (lT - pd.lowerT) * Math.min(1, dtReal * 16);
+      pd.upperT += (uT - pd.upperT) * Math.min(1, dtReal * 16);
+      const place = (seg, t) => {
+        const y = (seg.ay + seg.by) / 2;
+        const len = pd.width * (0.12 + 0.7 * t);
+        mat.makeScale(len, 1, 1);
+        mat.setPosition(pd.cx + pd.width * 0.42 * (1 - t), y, seg.ax);
+        this.pinMesh.setMatrixAt(idx++, mat);
       };
-      apply(pm.lower, pm.lowerT);
-      apply(pm.upper, pm.upperT);
+      place(col.pinLower, pd.lowerT);
+      place(col.pinUpper, pd.upperT);
     }
+    this.pinMesh.count = idx;
+    this.pinMesh.instanceMatrix.needsUpdate = true;
   }
 
-  _syncFlap(alpha) {
-    let maxAngle = 0;
+  _syncFlaps(alpha) {
+    let inner = 0, outer = 0;
     for (const f of this.world.flaps) {
       const a = f.pangleH + (f.angle - f.pangleH) * alpha;
-      if (a > maxAngle) maxAngle = a;
+      if (f.material === 'innerflap') inner = Math.max(inner, a);
+      else outer = Math.max(outer, a);
     }
-    this.ms.setFlapAngle(maxAngle);
+    this.ms.setInnerFlapAngle(inner);
+    this.ms.setFlapAngle(Math.max(outer, this.manualFlap ?? 0));
+  }
+
+  _syncBill() {
+    const bill = this.mech.bill;
+    const st = BILL.stacker;
+    // 搬送中の札
+    if (bill.state === 'feeding' || bill.state === 'validating' || bill.state === 'rejecting') {
+      this.billMesh.visible = true;
+      const depth = bill.state === 'validating' ? 1 : bill.progress;
+      // 挿入: 手前 (z+) から札口へ吸い込まれる
+      this.billMesh.position.set(
+        BILL.slot.u,
+        BILL.slot.v - 0.005,
+        0.36 + (1 - depth) * 0.10 - 0.06
+      );
+    } else if (bill.state === 'stacking') {
+      this.billMesh.visible = true;
+      const k = bill.progress - 1;
+      this.billMesh.position.set(
+        BILL.slot.u,
+        BILL.slot.v - 0.005 - k * (BILL.slot.v - (st.y0 + st.y1) / 2),
+        0.30 - k * (0.30 - st.z)
+      );
+    } else {
+      this.billMesh.visible = false;
+    }
+    // スタッカー枚数
+    const mat = new THREE.Matrix4();
+    const n = Math.min(bill.stacked, 40);
+    for (let i = 0; i < n; i++) {
+      mat.makeRotationY(Math.PI / 2);
+      mat.setPosition((st.x0 + st.x1) / 2, st.y0 + 0.006 + i * 0.0016, st.z);
+      this.billStackMesh.setMatrixAt(i, mat);
+    }
+    this.billStackMesh.count = n;
+    this.billStackMesh.instanceMatrix.needsUpdate = true;
   }
 
   _flyouts(dtReal, camera) {
     for (const f of this.flyouts) {
       f.t += dtReal;
       const k = easeInOut(Math.min(1, f.t / 0.55));
-      // カメラ手前へ吸い込まれて消える
-      const target = camera.position.clone().lerp(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(0.6).add(camera.position), 0.5);
+      const target = camera.position.clone().lerp(
+        camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(0.6).add(camera.position), 0.5);
       target.y -= 0.25;
       f.grp.position.lerp(target, k * 0.25);
       f.grp.scale.setScalar(1 - k * 0.9);

@@ -20,7 +20,7 @@ export class UI {
 
     this.coinChips = {};
     for (const chip of document.querySelectorAll('.coin-chip')) {
-      const denom = Number(chip.dataset.denom);
+      const denom = chip.dataset.denom === 'bill' ? 'bill' : Number(chip.dataset.denom);
       this.coinChips[denom] = chip;
       chip.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -60,6 +60,12 @@ export class UI {
       chip.querySelector('.coin-count').textContent = wallet[denom];
       chip.disabled = !canInsert(denom);
       total += denom * wallet[denom];
+    }
+    const billChip = this.coinChips.bill;
+    if (billChip) {
+      billChip.querySelector('.coin-count').textContent = wallet.bill;
+      billChip.disabled = !canInsert('bill');
+      total += wallet.bill * 1000;
     }
     this.walletTotal.textContent = `${total}円`;
   }

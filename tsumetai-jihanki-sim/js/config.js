@@ -29,8 +29,8 @@ export const CABINET = {
   w: 1.185, h: 1.83, d: 0.731,
   zFront: 0.3655, zBack: -0.3655,
   doorZBack: 0.24,                     // 扉アセンブリの背面 (展示室は扉内に収まる)
-  mechZ: 0.245,                        // コインメック描画面 (ワールドz)
-  mechBackZ: 0.205,                    // 金庫経路 (メック背面側)
+  mechZ: 0.20,                         // コインメック描画面 (展示室背面パネルの奥)
+  mechBackZ: 0.165,                    // 金庫経路 (メック背面側)
   hingeX: -0.5925,                     // 扉ヒンジ (左端)
   portX: [-0.50, 0.20],                // 取出口の横範囲 (下部中央〜左)
   portFloorY: 0.365,
@@ -219,52 +219,54 @@ export const CHUTE = {
 };
 
 /* ---------------- コインメック 経路レイアウト ----------------
-   前面: 投入口 y≈1.30 (実機 床上約1250mm)。メックは扉裏 y0.55-1.35。 */
-const RAIL_X0 = 0.475, RAIL_Y0 = 1.215, RAIL_SLOPE = 0.22;
+   実機のコインメックは幅約14cmのコンパクトなユニットが
+   金銭部の裏に収まる。ここでも右縦帯の裏 (x 0.33-0.57) に圧縮配置。 */
+const RAIL_X0 = 0.522, RAIL_Y0 = 1.212, RAIL_SLOPE = 0.26;
 const railY = (x) => RAIL_Y0 - (RAIL_X0 - x) * RAIL_SLOPE;
 
 export const GATES = [
-  { denom: 50,  cx: 0.415, passD: 0.0218 },
-  { denom: 100, cx: 0.355, passD: 0.0230 },
-  { denom: 10,  cx: 0.295, passD: 0.0245 },
+  { denom: 50,  cx: 0.477, passD: 0.0218 },
+  { denom: 100, cx: 0.437, passD: 0.0230 },
+  { denom: 10,  cx: 0.397, passD: 0.0245 },
 ];
-export const RAIL_END_X = 0.225;
-export const CH500_CX = 0.212;
+export const RAIL_END_X = 0.385;
+export const CH500_CX = 0.347;
 
 export const TUBES = {
-  50:  { cx: 0.415 },
-  100: { cx: 0.355 },
-  10:  { cx: 0.295 },
-  500: { cx: 0.212 },
+  50:  { cx: 0.477 },
+  100: { cx: 0.437 },
+  10:  { cx: 0.397 },
+  500: { cx: 0.347 },
 };
 export const TUBE_TOP = 0.845, TUBE_BOTTOM = 0.625;
 export const TUBE_INIT = { 10: 14, 50: 8, 100: 12, 500: 5 };
 export const TUBE_CAP = { 10: 60, 50: 55, 100: 55, 500: 45 };
 
 export const MECH = {
-  slot: { u: 0.495, v: 1.30 },
-  spawn: { u: 0.495, v: 1.335 },
+  slot: { u: 0.512, v: 1.30 },
+  spawn: { u: 0.512, v: 1.335 },
   railY, RAIL_X0, RAIL_Y0, RAIL_SLOPE,
   sensorY: 1.115,                  // 検銭センサー
   escrowY: 1.055,                  // 保留シャッター (100/500のみ。硬貨はこの上に滞留)
   escrowReturnY: 1.015,            // 返却振分センサー (シャッター直下・返却時のみ有効)
   flipperY: 0.975,                 // 金庫振分 (チューブ満杯時)
   tubeMouthY: 0.848,               // チューブ入口センサー
-  returnGate: { pivot: [0.537, 1.243], len: 0.064 },
-  returnLaneX: [0.487, 0.545],     // 返却落下レーン (ゲート開時の素通り)
-  cup: { left: 0.44, right: 0.545, floor: 0.42, top: 0.53 },
-  payoutChute: { a: [0.19, 0.585], b: [0.432, 0.492] },
+  returnGate: { pivot: [0.548, 1.276], len: 0.052 },
+  returnLaneX: [0.530, 0.562],     // 返却落下レーン (ゲート開時の素通り)
+  cup: { left: 0.44, right: 0.562, floor: 0.42, top: 0.53 },
+  payoutChute: { a: [0.325, 0.565], b: [0.428, 0.478] },
   // エスクロー返却シュート (専用層。保留現物をカップへ)
-  escrowChute: { a: [0.185, 0.975], b: [0.505, 0.63] },
-  escrowCupSensor: { u: 0.495, v: 0.605 },
-  // 金庫 (背面層)
-  cashChute: { a: [0.185, 0.855], b: [0.408, 0.575] },
-  cashMouth: { u: 0.395, v: 0.548 },
-  cashBox: { x0: 0.29, x1: 0.42, y0: 0.28, y1: 0.52 },
+  escrowChute: { a: [0.335, 0.975], b: [0.528, 0.68] },
+  escrowCupSensor: { u: 0.535, v: 0.62 },
+  // 金庫 (背面層): メック直下・つり銭口の下
+  cashChute: { a: [0.505, 0.945], b: [0.375, 0.455] },
+  cashMouth: { u: 0.385, v: 0.432 },
+  cashBox: { x0: 0.345, x1: 0.50, y0: 0.24, y1: 0.41 },
   payoutInterval: 0.14,
+  // 開口は最大硬貨 (500円 26.5mm) + 余裕
   entryFunnel: [
-    [[0.455, 1.345], [0.479, 1.272]],
-    [[0.537, 1.345], [0.512, 1.272]],
+    [[0.476, 1.345], [0.499, 1.284]],
+    [[0.551, 1.345], [0.528, 1.284]],
   ],
 };
 
@@ -275,7 +277,7 @@ export const BILL = {
   insertTime: 1.1,                  // 搬送時間
   validateTime: 0.7,                // 判定時間
   rejectTime: 1.0,                  // 吐き出し時間
-  stacker: { x0: 0.42, x1: 0.57, y0: 1.06, y1: 1.16, z: 0.215 },
+  stacker: { x0: 0.42, x1: 0.57, y0: 1.135, y1: 1.235, z: 0.185 },
   value: 1000,
   minChangeCoins: 13,               // 実機: 釣銭13枚確保できないと受け付けない
 };

@@ -86,9 +86,10 @@ export class CoinMech {
     for (const [x0, x1] of cuts) {
       add([x0, railY(x0)], [x1, railY(x1)], { material: 'rail', friction: 0.28 });
     }
-    // 天井ガイド
-    add([MECH.RAIL_X0 - 0.009, railY(MECH.RAIL_X0 - 0.009) + 0.033],
-        [CH500_CX - 0.014, railY(RAIL_END_X) + 0.031],
+    // 天井ガイド: 入口側は漏斗左壁の下端から外側へ続くカバーで
+    // 「く」の字に (落下硬貨が天井上面に乗れない)
+    add([0.4955, 1.284], [0.462, 1.235], { material: 'rail', restitution: 0.05 });
+    add([0.462, 1.235], [CH500_CX - 0.014, railY(RAIL_END_X) + 0.031],
         { material: 'rail', restitution: 0.05 });
 
     // ---- 金種チャンネル ----
@@ -154,7 +155,7 @@ export class CoinMech {
 
     // ---- 返却レーン (ゲート開時の素通り) ----
     const [lx, rx] = MECH.returnLaneX;
-    add([lx, 1.212], [lx, 1.15], { material: 'steel' });
+    add([lx, 1.246], [lx, 0.60], { material: 'steel' });
     add([rx, 1.31], [rx, MECH.cup.top], { material: 'steel' });
 
     // ---- 返却口カップ ----
@@ -185,16 +186,17 @@ export class CoinMech {
       cb: (body) => { body.layer = LAYER_MECH; body.wake(); },
     }));
 
-    // ---- 金庫経路 (背面層) ----
+    // ---- 金庫経路 (背面層)。シュートは右上→左下 ----
     const cc = MECH.cashChute;
     const addB = (a, b, o = {}) => W.addSeg(new Seg({ layer: LAYER_MECH_BACK, a, b, material: 'steel', ...o }));
     addB(cc.a, cc.b, { friction: 0.2 });
-    addB([cc.b[0] + 0.023, cc.b[1] + 0.03], [cc.b[0] + 0.023, 0.30], { restitution: 0.1 });
-    addB([cc.a[0] - 0.012, cc.a[1] + 0.02], [cc.a[0] - 0.012, 0.30], { restitution: 0.1 });
+    // 終端の左側に落とし込み壁 (硬貨径より広い隙間を確保)
+    addB([cc.b[0] - 0.033, cc.b[1] + 0.06], [cc.b[0] - 0.033, 0.26], { restitution: 0.1 });
+    addB([cc.a[0] + 0.012, cc.a[1] + 0.02], [cc.a[0] + 0.012, 0.26], { restitution: 0.1 });
     W.addSensor(new Sensor({
       layer: LAYER_MECH_BACK,
-      a: [cc.a[0] - 0.012, MECH.cashMouth.v],
-      b: [cc.b[0] + 0.023, MECH.cashMouth.v],
+      a: [cc.b[0] - 0.033, MECH.cashMouth.v],
+      b: [cc.b[0] + 0.04, MECH.cashMouth.v],
       tag: 'cash-in',
       cb: (body) => this._onCashIn(body),
     }));
@@ -238,7 +240,7 @@ export class CoinMech {
     this.returning = pressed;
     this.gateTarget = pressed ? GATE_RETURN : GATE_ACCEPT;
     this.emit('gate', { returning: pressed });
-    this.world.wakeArea(LAYER_MECH, 0.42, 1.14, 0.58, 1.40);
+    this.world.wakeArea(LAYER_MECH, 0.45, 1.18, 0.59, 1.40);
     if (pressed && this.escrow.length > 0) this.returnEscrow();
   }
 
@@ -559,6 +561,8 @@ export class BillValidator {
   }
 }
 
-/* 返却ゲートの角度 (ピボット相対) */
-const GATE_ACCEPT = Math.atan2(-0.030, -0.060);
-const GATE_RETURN = Math.atan2(-0.073, -0.030);
+/* 返却ゲートの角度 (ピボット相対)
+   accept: 緩い左下がり → 硬貨をレールへ落とす
+   return: 急な右寄り縦 → 硬貨を返却レーンへ滑らせる */
+const GATE_ACCEPT = Math.atan2(-0.026, -0.045);
+const GATE_RETURN = Math.atan2(-0.048, -0.013);
