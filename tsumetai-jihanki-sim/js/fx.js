@@ -3,7 +3,7 @@
    ・庫内の冷気もや (X線モードで見える) / 取出口の冷気パフ
    ・商品表面の結露シェル (水滴アルファテクスチャ)
    ============================================================ */
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 import { canvasTexture, makeRng } from './lib3d.js';
 
 let dropletTex = null;

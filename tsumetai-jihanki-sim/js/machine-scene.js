@@ -7,7 +7,7 @@
    ・下部 = 横長取出口 (フラッパー) + 右下の蓋付きつり銭口
    ・黒い蹴込み+機械室ルーバー・グレー側面・統一/住所ステッカー
    ============================================================ */
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 import { mergeGeoms, mat4, canvasTexture, makeRng, segPlate } from './lib3d.js';
 import {
   CABINET, PRODUCTS, COLUMNS, SELECTIONS, CHAMBERS, FASCIA, CHUTE, BILL, RACK,

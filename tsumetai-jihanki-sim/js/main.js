@@ -3,12 +3,7 @@
    (実機準拠版: FR30A6R40TK)
    固定タイムステップ物理 + 描画補間 + モード管理 + 全イベント結線
    ============================================================ */
-import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-
+import * as THREE from '../vendor/three.module.js';
 import { World } from './physics.js';
 import { CoinMech } from './coin-mech.js';
 import { Rack } from './rack.js';
@@ -39,12 +34,6 @@ renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x2a3542);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 30);
-
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.5, 0.85);
-composer.addPass(bloom);
-composer.addPass(new OutputPass());
 
 /* ---- 環境マップ (金属の映り込み) ---- */
 {
@@ -417,7 +406,6 @@ function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2) * quality.ratio;
   renderer.setPixelRatio(dpr);
   renderer.setSize(w, h);
-  composer.setSize(w, h);
   camera.aspect = w / h;
   isPortrait = h > w;
   camera.updateProjectionMatrix();
@@ -433,11 +421,12 @@ function tuneQuality(dt) {
     const avg = quality.acc / quality.frames;
     quality.acc = 0; quality.frames = 0;
     if (quality.cooldown <= 0) {
-      if (avg > 1 / 38 && quality.ratio > 0.6) {
-        quality.ratio = Math.max(0.6, quality.ratio - 0.15);
+      if (avg > 1 / 38 && quality.ratio > 0.55) {
+        quality.ratio = Math.max(0.55, quality.ratio - 0.15);
         quality.cooldown = 2; resize();
-      } else if (avg > 1 / 30 && quality.ratio <= 0.6 && bloom.enabled) {
-        bloom.enabled = false;
+      } else if (avg > 1 / 30 && quality.ratio <= 0.55 && renderer.shadowMap.enabled) {
+        // それでも重い端末は影を切る
+        renderer.shadowMap.enabled = false;
         quality.cooldown = 3;
       } else if (avg < 1 / 57 && quality.ratio < 1) {
         quality.ratio = Math.min(1, quality.ratio + 0.1);
@@ -456,7 +445,8 @@ rack.preloadDirect(null);
   const totalSteps = Math.round(3.0 / PHYS.h);
   let done = 0;
   const chunk = () => {
-    const n = Math.min(400, totalSteps - done);
+    // 1フレームぶんを小さく刻む (モバイルSafariのウォッチドッグ対策)
+    const n = Math.min(150, totalSteps - done);
     for (let i = 0; i < n; i++) {
       mech.tick(PHYS.h);
       rack.tick(PHYS.h);
@@ -581,7 +571,7 @@ function loop(now) {
   cameraRig.update(dtReal, game.time);
   tuneQuality(dtReal);
   debug.update(dtReal);
-  composer.render();
+  renderer.render(scene, camera);
 }
 
 resize();

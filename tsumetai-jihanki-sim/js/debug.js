@@ -2,7 +2,7 @@
    debug.js — ?debug=1 で有効になる開発用オーバーレイ
    FPS / 剛体数 / 状態表示 + 物理コライダのワイヤ表示
    ============================================================ */
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 import { CABINET, COLUMNS, CHAMBERS } from './config.js';
 import { LAYER_MECH, LAYER_MECH_BACK, LAYER_ESCROW_RET } from './coin-mech.js';
 

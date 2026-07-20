@@ -9,13 +9,31 @@
 <title>つめた〜い じはんきシミュレーター</title>
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥤</text></svg>">
-<script type="importmap">
-{
-  "imports": {
-    "three": "./vendor/three.module.js",
-    "three/addons/": "./vendor/addons/"
+<!-- importmap は iOS/iPadOS 16.4 未満の Safari が非対応のため使わない
+     (three.js は各モジュールから相対パスで直接 import する) -->
+<script>
+// 端末上でのエラー可視化 (特に iPhone/iPad のデバッグ用)
+(function () {
+  function show(msg) {
+    var el = document.getElementById('fatal-error');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'fatal-error';
+      el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:99;' +
+        'background:rgba(120,10,10,0.92);color:#fff;font:12px/1.5 monospace;' +
+        'padding:10px;border-radius:8px;white-space:pre-wrap;word-break:break-all;';
+      document.body.appendChild(el);
+    }
+    el.textContent += msg + '\n';
   }
-}
+  window.addEventListener('error', function (e) {
+    show('[error] ' + (e.message || e.type) +
+      (e.filename ? ' @' + e.filename.split('/').pop() + ':' + e.lineno : ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    show('[promise] ' + (e.reason && (e.reason.message || e.reason)));
+  });
+})();
 </script>
 </head>
 <body>
@@ -85,6 +103,20 @@
   <!-- デバッグ -->
   <div id="debug-overlay" class="hidden"></div>
 </div>
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/main.js"
+  onerror="document.getElementById('start-btn').textContent='よみこみエラー'"></script>
+<script>
+// 起動ウォッチドッグ: 12秒たっても初期化されない場合は端末情報つきで表示
+setTimeout(function () {
+  if (!window.__vending) {
+    var el = document.getElementById('fatal-error');
+    if (!el) {
+      window.dispatchEvent(new ErrorEvent('error', { message: 'ゲームが初期化できませんでした' }));
+      el = document.getElementById('fatal-error');
+    }
+    if (el) el.textContent += '[info] ' + navigator.userAgent + '\n';
+  }
+}, 12000);
+</script>
 </body>
 </html>
