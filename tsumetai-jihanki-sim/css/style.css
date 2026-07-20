@@ -40,6 +40,7 @@ html, body {
   font-size: clamp(18px, 4vmin, 26px);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
   cursor: pointer;
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
 .round-btn:active { transform: translateY(1px); }
@@ -79,6 +80,7 @@ html, body {
   border: 2px solid rgba(160, 200, 240, 0.4);
   border-radius: 14px;
   padding: 5px;
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
 #time-ctrl button {
@@ -115,6 +117,7 @@ html, body {
   border-radius: 18px;
   padding: 6px 14px 8px;
   text-align: center;
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
 .wallet-label {
@@ -191,6 +194,7 @@ html, body {
   border-radius: 14px;
   padding: 10px 14px;
   max-width: min(64vw, 300px);
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
 #op-hint {

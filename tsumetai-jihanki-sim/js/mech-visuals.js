@@ -5,7 +5,7 @@
    ・硬貨/商品は InstancedMesh (補間つき)
    ・エスクローシャッター / 紙幣搬送 / ベンドピン30組 / 釣銭スタック
    ============================================================ */
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 import { segPlate, canvasTexture, makeRng, lerp, easeInOut, mat4, mergeGeoms } from './lib3d.js';
 import { buildProductGeometry, productAtlasMat } from './machine-scene.js';
 import {

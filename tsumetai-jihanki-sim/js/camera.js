@@ -3,7 +3,7 @@
    プリセット位置を基準に、ユーザーのドラッグでヨー/ピッチを
    オフセットし、ピンチで距離を変える。モード切替はトゥイーン。
    ============================================================ */
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 import { clamp, lerp, easeInOut } from './lib3d.js';
 
 /* モード別プリセット {target, dist, yaw, pitch, fov} (縦/横) */

@@ -2,7 +2,7 @@
    lib3d.js — 描画ヘルパー (sky-air-rider から流用・改変)
    ジオメトリ結合 / Canvasテクスチャ / 行列 / 乱数
    ============================================================ */
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 
 /* ---- 複数ジオメトリを1つに結合 (頂点カラー付き・非インデックス) ----
    entries: [{ geom, matrix?, color }] */

@@ -5,7 +5,7 @@
    ・ピンチ → ズーム
    3D部品は mesh.userData.tap = {type, ...} を登録して拾う。
    ============================================================ */
-import * as THREE from 'three';
+import * as THREE from '../vendor/three.module.js';
 
 export class InputManager {
   constructor(el, camera, handlers) {
