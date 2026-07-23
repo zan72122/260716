@@ -7,12 +7,20 @@ import { BalloonGame } from './balloon.js';
 import { FruitsGame } from './fruits.js';
 import { RaceGame } from './race.js';
 import { StarsGame } from './stars.js';
+import { FishGame } from './fish.js';
+import { CakeGame } from './cake.js';
+import { CartGame } from './cart.js';
+import { VolcanoGame } from './volcano.js';
 
 const GAME_CLASSES = {
   balloon: BalloonGame,
   fruits: FruitsGame,
   race: RaceGame,
   stars: StarsGame,
+  fish: FishGame,
+  cake: CakeGame,
+  cart: CartGame,
+  volcano: VolcanoGame,
 };
 
 const shuffle = (arr) => {

@@ -30,8 +30,11 @@ class CameraRig {
     this.mode = 'overview';
     this.followChar = null;
     this.lookPoint = new THREE.Vector3();
-    this.pos = new THREE.Vector3(0, 30, 40);
+    this.manualPos = new THREE.Vector3();
+    this.manualLook = new THREE.Vector3();
+    this.pos = new THREE.Vector3(0, 38, 50);
     this.look = new THREE.Vector3(0, 0, 0);
+    this.zoomPunch = 1;   // 1未満で一瞬ズームイン(ドラマ演出)
     cam.position.copy(this.pos);
   }
 
@@ -39,6 +42,14 @@ class CameraRig {
   setFollow(char) { this.mode = 'follow'; this.followChar = char; }
   setLookAt(p) { this.mode = 'look'; this.lookPoint.copy(p); }
   setFinale() { this.mode = 'finale'; }
+  setManual(pos, look) {
+    this.mode = 'manual';
+    this.manualPos.copy(pos);
+    this.manualLook.copy(look);
+  }
+
+  // 一瞬ぐっと寄る(大きい出目・ばくはつ・かみなり)
+  punch(amount = 0.75) { this.zoomPunch = amount; }
 
   update(dt, aspect, t) {
     // 縦画面では引き気味にして全体が見えるように
@@ -46,8 +57,11 @@ class CameraRig {
     const desiredPos = new THREE.Vector3();
     const desiredLook = new THREE.Vector3();
 
+    this.zoomPunch += (1 - this.zoomPunch) * Math.min(1, dt * 2.2);
+    const zp = this.zoomPunch;
+
     if (this.mode === 'overview') {
-      desiredPos.set(0, 25 * pf, 30 * pf);
+      desiredPos.set(0, 34 * pf, 42 * pf);
       desiredLook.set(0, 0.5, 0);
     } else if (this.mode === 'follow' && this.followChar) {
       const p = this.followChar.root.position;
@@ -55,15 +69,18 @@ class CameraRig {
       if (out.lengthSq() < 1) out.set(0, 0, 1);
       out.normalize();
       desiredPos.copy(p)
-        .addScaledVector(out, 6.8 * pf)
-        .add(new THREE.Vector3(0, 4.4 * pf, 0));
+        .addScaledVector(out, 6.8 * pf * zp)
+        .add(new THREE.Vector3(0, 4.4 * pf * zp, 0));
       desiredLook.copy(p).add(new THREE.Vector3(0, 1, 0));
     } else if (this.mode === 'look') {
       desiredPos.copy(this.pos);
       desiredLook.copy(this.lookPoint);
+    } else if (this.mode === 'manual') {
+      desiredPos.copy(this.manualPos);
+      desiredLook.copy(this.manualLook);
     } else if (this.mode === 'finale') {
       const a = t * 0.22;
-      desiredPos.set(Math.cos(a) * 12 * pf, 6.6 * pf, Math.sin(a) * 12 * pf);
+      desiredPos.set(Math.cos(a) * 12 * pf, 6.8 * pf, Math.sin(a) * 12 * pf);
       desiredLook.set(0, 3.2, 0);
     }
 
@@ -84,21 +101,25 @@ const world = new World(scene);
 const fx = new ParticleFX(scene);
 const ui = new UI();
 
+// それぞれ別のゾーンの入口からスタート(島じゅうが舞台になる)
 const chars = CHARACTERS.map((def) => createCharacter(def));
 chars.forEach((c, i) => {
   const a = (i / 4) * Math.PI * 2 + 0.6;
-  const offset = new THREE.Vector3(Math.cos(a) * 0.56, 0, Math.sin(a) * 0.56);
-  c.root.position.copy(world.tiles[0].pos).add(offset);
-  c.faceTowards(world.tiles[1].pos);
+  const offset = new THREE.Vector3(Math.cos(a) * 0.42, 0, Math.sin(a) * 0.42);
+  c.tileIndex = c.def.startTile;
+  c.root.position.copy(world.tiles[c.tileIndex].pos).add(offset);
+  c.faceTowards(world.tiles[(c.tileIndex + 1) % world.tiles.length].pos);
   scene.add(c.root);
 });
 
 let playerIndex = 0;
+let timeScale = 1; // スターゲットのスローモーション用
 
 const mgManager = new MinigameManager({ chars, playerIndex, ui, boardScene: scene });
 const board = new BoardGame({
   scene, world, chars, ui, fx, rig,
   runMinigame: () => mgManager.run(),
+  setTimeScale: (s) => { timeScale = s; },
 });
 
 // ============ 入力 ============
@@ -111,7 +132,12 @@ const tapLayer = document.getElementById('tap-layer');
 tapLayer.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   audio.unlock();
-  mgManager.pointerDown(getNdc(e), { x: e.clientX, y: e.clientY });
+  if (mgManager.active) {
+    mgManager.pointerDown(getNdc(e), { x: e.clientX, y: e.clientY });
+  } else if (board.tapHandler) {
+    // ボス・コースターなどボード上のタップイベント
+    board.tapHandler(getNdc(e), { x: e.clientX, y: e.clientY });
+  }
 }, { passive: false });
 tapLayer.addEventListener('pointermove', (e) => {
   e.preventDefault();
@@ -190,7 +216,7 @@ let firstFrame = true;
 
 function loop() {
   requestAnimationFrame(loop);
-  const dt = Math.min(0.05, clock.getDelta());
+  const dt = Math.min(0.05, clock.getDelta()) * timeScale;
   const t = clock.elapsedTime;
   const aspect = window.innerWidth / Math.max(1, window.innerHeight);
 

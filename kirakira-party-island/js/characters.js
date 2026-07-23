@@ -226,6 +226,36 @@ export class PartyCharacter {
     this.shadow.position.y = 0.03;
     this.root.add(this.shadow);
 
+    // へんしん用アクセサリー(スーパーすがたで登場)
+    const crownY = { bunny: 1.34, chick: 1.2, penguin: 1.18, frog: 1.14 }[def.species] ?? 1.2;
+    this.crown = new THREE.Group();
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.12, 10), toonMat(0xffd23e));
+    this.crown.add(band);
+    for (let i = 0; i < 4; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 6), toonMat(0xffd23e));
+      const a = (i / 4) * Math.PI * 2;
+      spike.position.set(Math.cos(a) * 0.13, 0.12, Math.sin(a) * 0.13);
+      this.crown.add(spike);
+    }
+    this.crown.position.y = crownY;
+    this.crown.visible = false;
+    this.inner.add(this.crown);
+
+    const capeMat = toonMat(new THREE.Color(def.color).offsetHSL(0, 0.05, -0.18).getHex(), {
+      side: THREE.DoubleSide,
+    });
+    this.cape = new THREE.Mesh(
+      new THREE.ConeGeometry(0.55, 0.95, 12, 1, true, Math.PI * 0.6, Math.PI * 0.8),
+      capeMat,
+    );
+    this.cape.position.set(0, 0.62, -0.22);
+    this.cape.rotation.x = 0.28;
+    this.cape.visible = false;
+    this.inner.add(this.cape);
+
+    this.form = 'normal';       // normal | super | chibi
+    this.formScale = 1;         // なめらかに変化する現在値
+
     // ゲーム状態
     this.coins = 0;
     this.stars = 0;
@@ -242,6 +272,18 @@ export class PartyCharacter {
   }
 
   setMode(m) { this.mode = m; }
+
+  // へんしん!(normal | super | chibi)
+  setForm(form) {
+    this.form = form;
+    const showSuper = form === 'super';
+    this.crown.visible = showSuper;
+    this.cape.visible = showSuper;
+  }
+
+  targetFormScale() {
+    return this.form === 'super' ? 1.28 : this.form === 'chibi' ? 0.72 : 1;
+  }
 
   // 着地のむにゅ
   land() { this.squash = 0.55; }
@@ -319,8 +361,17 @@ export class PartyCharacter {
       });
     }
 
+    // へんしんスケールはなめらかに
+    this.formScale += (this.targetFormScale() - this.formScale) * Math.min(1, dt * 5);
+    const fs = this.formScale;
+
     this.inner.position.y = this.hopY + bobY;
-    this.inner.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
+    this.inner.scale.set(fs / Math.sqrt(sq), fs * sq, fs / Math.sqrt(sq));
+
+    // マントはふわり
+    if (this.cape.visible) {
+      this.cape.rotation.x = 0.28 + Math.sin(t * 3) * 0.08 + (this.mode === 'hop' ? 0.3 : 0);
+    }
 
     // 影:高く飛ぶほど小さく薄く
     const h = this.inner.position.y;

@@ -140,6 +140,68 @@ export function diceFaceTexture(n) {
   return tex;
 }
 
+// マイナスサイコロの面(くらい紫に白い「-n」)
+export function minusDiceFaceTexture(n) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#3a3050';
+  g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = '#6b5f8f';
+  g.lineWidth = 14;
+  g.strokeRect(10, 10, 236, 236);
+  // ちいさな くろくも
+  g.fillStyle = '#565070';
+  [[70, 70, 26], [100, 62, 30], [130, 72, 24]].forEach(([x, y, r]) => {
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  });
+  g.fillStyle = '#ffffff';
+  g.font = '900 130px sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(`-${n}`, 128, 160);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// ばくだんサイコロの面(まっくろに「?」)
+export function bombDiceFaceTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#26232e';
+  g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = '#ff9d3c';
+  g.lineWidth = 14;
+  g.strokeRect(10, 10, 236, 236);
+  g.fillStyle = '#ffd23e';
+  g.font = '900 150px sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('?', 128, 138);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// いなずま形(ジグザグの押し出し)
+export function lightningGeometry(size = 1, depth = 0.12) {
+  const s = new THREE.Shape();
+  const k = size;
+  s.moveTo(0.1 * k, 0.6 * k);
+  s.lineTo(-0.25 * k, 0.05 * k);
+  s.lineTo(-0.02 * k, 0.05 * k);
+  s.lineTo(-0.3 * k, -0.6 * k);
+  s.lineTo(0.18 * k, -0.05 * k);
+  s.lineTo(-0.05 * k, -0.05 * k);
+  s.lineTo(0.32 * k, 0.6 * k);
+  s.closePath();
+  const geo = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false });
+  geo.center();
+  return geo;
+}
+
 // 空のグラデーションドーム用シェーダー素材
 export function skyMaterial() {
   return new THREE.ShaderMaterial({
@@ -208,9 +270,9 @@ export function seaMaterial() {
         float d = length(c) * 2.0;
         vec3 col = mix(shallow, deep, smoothstep(0.06, 0.5, d));
         // トゥーン調の波しま
-        float stripe = sin(d * 90.0 - time * 1.6 + vWave * 3.0);
-        col = mix(col, sparkleCol, step(0.93, stripe) * 0.55 * (1.0 - smoothstep(0.3, 0.7, d)));
-        col += vWave * 0.03;
+        float stripe = sin(d * 90.0 - time * 1.6 + vWave * 1.4);
+        col = mix(col, sparkleCol, step(0.93, stripe) * 0.5 * (1.0 - smoothstep(0.25, 0.6, d)));
+        col += vWave * 0.012;
         gl_FragColor = vec4(col, 1.0);
       }
     `,

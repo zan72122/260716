@@ -129,36 +129,94 @@ class PartyAudio {
     this.noise({ dur: 0.5, vol: 0.2, at: i * 0.25, filterFreq: 600 + Math.random() * 2000 });
     this.tone({ freq: 900 + Math.random() * 600, type: 'sine', dur: 0.4, vol: 0.1, at: i * 0.25, slide: -400 });
   }
+  thunder() {
+    this.noise({ dur: 0.7, vol: 0.35, filterFreq: 300 });
+    this.noise({ dur: 0.5, vol: 0.2, at: 0.15, filterFreq: 150 });
+    this.tone({ freq: 90, type: 'sawtooth', dur: 0.6, vol: 0.18, slide: -50 });
+  }
+  boom() {
+    this.noise({ dur: 0.6, vol: 0.4, filterFreq: 200 });
+    this.tone({ freq: 70, type: 'sine', dur: 0.5, vol: 0.35, slide: -30 });
+    this.noise({ dur: 0.3, vol: 0.2, at: 0.05, filterFreq: 2000 });
+  }
+  splash() {
+    this.noise({ dur: 0.4, vol: 0.25, filterFreq: 1400 });
+    this.noise({ dur: 0.3, vol: 0.15, at: 0.1, filterFreq: 3200 });
+  }
+  giggle() {
+    const f = 700 + Math.random() * 300;
+    [0, 0.07, 0.14].forEach((at, i) => {
+      this.tone({ freq: f + i * 120, type: 'triangle', dur: 0.07, vol: 0.18, at });
+    });
+  }
+  yahoo() {
+    this.tone({ freq: 520, type: 'triangle', dur: 0.28, vol: 0.22, slide: 500 });
+  }
+  geyser() {
+    this.noise({ dur: 0.9, vol: 0.28, filterFreq: 900 });
+    this.tone({ freq: 200, type: 'sine', dur: 0.9, vol: 0.15, slide: 700 });
+  }
+  slip() {
+    this.tone({ freq: 900, type: 'sine', dur: 0.3, vol: 0.16, slide: -600 });
+  }
+  transform() {
+    const seq = [[523, 0], [659, 0.08], [784, 0.16], [1047, 0.24], [1319, 0.34], [1568, 0.46]];
+    seq.forEach(([f, at]) => this.tone({ freq: f, type: 'triangle', dur: 0.22, vol: 0.2, at }));
+    this.noise({ dur: 0.4, vol: 0.08, at: 0.4, filterFreq: 6000 });
+  }
+  sadTrombone() {
+    // かなしいけど かわいく
+    [[330, 0], [311, 0.18], [294, 0.36]].forEach(([f, at]) => {
+      this.tone({ freq: f, type: 'sawtooth', dur: 0.2, vol: 0.12, at });
+    });
+  }
+  rumble() {
+    this.noise({ dur: 1.2, vol: 0.2, filterFreq: 120 });
+    this.tone({ freq: 55, type: 'sine', dur: 1.2, vol: 0.25 });
+  }
 
-  // ---- BGM: 軽快なループを1小節ずつスケジュール ----
-  startBgm(mode = 'board') {
+  // ---- BGM: 軽快なループを1ステップずつスケジュール ----
+  // mode: 'board:beach' | 'board:jungle' | 'board:volcano' | 'board:park'
+  //       | 'board:final' | 'minigame' | 'boss' | 'coaster' | 'cave'
+  startBgm(mode = 'board:beach') {
     if (!this.ctx) return;
     if (this.bgmMode === mode && this.bgmTimer) return;
     this.stopBgm();
     this.bgmMode = mode;
     this.bgmStep = 0;
-    const tempo = mode === 'minigame' ? 0.16 : 0.21; // 1ステップの秒数
+
+    // ゾーンや場面ごとの雰囲気(スケール・テンポ・波形)
+    const PRESETS = {
+      'board:beach':   { tempo: 0.21, wave: 'square',   scale: [392, 440, 523, 587, 659, 784],  bass: [131, 98, 110, 123] },
+      'board:jungle':  { tempo: 0.23, wave: 'triangle', scale: [392, 440, 523, 659, 784, 880],  bass: [98, 98, 110, 87],  perc: true },
+      'board:volcano': { tempo: 0.2,  wave: 'sawtooth', scale: [349, 415, 440, 523, 622, 698],  bass: [87, 82, 98, 73],   dark: true },
+      'board:park':    { tempo: 0.16, wave: 'square',   scale: [523, 587, 659, 698, 784, 1047], bass: [131, 147, 165, 131] },
+      'board:final':   { tempo: 0.15, wave: 'square',   scale: [440, 494, 587, 659, 740, 880],  bass: [110, 123, 131, 147] },
+      minigame:        { tempo: 0.16, wave: 'square',   scale: [523, 587, 659, 784, 880, 1047], bass: [131, 98, 110, 123] },
+      boss:            { tempo: 0.18, wave: 'triangle', scale: [349, 392, 466, 523, 587, 698],  bass: [87, 87, 78, 98],   dark: true },
+      coaster:         { tempo: 0.13, wave: 'square',   scale: [523, 659, 784, 880, 1047, 1319], bass: [131, 165, 147, 196] },
+      cave:            { tempo: 0.3,  wave: 'sine',     scale: [523, 622, 784, 932, 1047, 1245], bass: [65, 78, 73, 65],   dark: true },
+    };
+    const p = PRESETS[mode] || PRESETS['board:beach'];
     const play = () => {
       const s = this.bgmStep;
-      const scale = mode === 'minigame'
-        ? [523, 587, 659, 784, 880, 1047]
-        : [392, 440, 523, 587, 659, 784];
       // ベース
       if (s % 4 === 0) {
-        const bass = [131, 98, 110, 123][Math.floor(s / 8) % 4];
-        this.tone({ freq: bass, type: 'triangle', dur: tempo * 3, vol: 0.5, target: this.bgmGain });
+        const bass = p.bass[Math.floor(s / 8) % 4];
+        this.tone({ freq: bass, type: 'triangle', dur: p.tempo * 3, vol: p.dark ? 0.6 : 0.5, target: this.bgmGain });
       }
       // メロディ(かんたんな上下フレーズ)
       const mel = [0, 2, 4, 2, 5, 4, 2, 0, 1, 3, 5, 3, 4, 2, 1, 0];
       if (s % 2 === 0) {
-        const f = scale[mel[(s / 2) % mel.length]];
-        this.tone({ freq: f, type: 'square', dur: tempo * 1.6, vol: 0.28, target: this.bgmGain });
+        const f = p.scale[mel[(s / 2) % mel.length]];
+        this.tone({ freq: f, type: p.wave, dur: p.tempo * 1.6, vol: p.dark ? 0.2 : 0.28, target: this.bgmGain });
       }
-      // ハイハット風
+      // ハイハット/ジャングルの太鼓
       if (s % 2 === 1) this.noise({ dur: 0.03, vol: this.muted ? 0 : 0.03, filterFreq: 8000 });
+      if (p.perc && s % 8 === 6) this.noise({ dur: 0.1, vol: this.muted ? 0 : 0.08, filterFreq: 250 });
       this.bgmStep++;
     };
-    this.bgmTimer = setInterval(play, tempo * 1000);
+    this.bgmTimer = setInterval(play, p.tempo * 1000);
   }
 
   stopBgm() {
